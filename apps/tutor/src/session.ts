@@ -39,6 +39,9 @@ export class Session {
   private latePlan: LessonPlan | null = null;
   /** Pictures generated ahead of time from the plan, by block id. */
   private readyImages = new Map<string, Promise<string>>();
+  /** Set when reopening a saved board: what was said so far, in case the brain's own session is gone. */
+  private resumeTranscript: string | null = null;
+  private recovered = false;
 
   constructor(
     private readonly brain: Brain,
@@ -80,6 +83,7 @@ export class Session {
     for (const e of log) if (e.kind === "event") this.board = applyEvent(this.board, e.event);
     this.send({ type: "session", id: this.id, brain: this.brain.name, model: this.brain.model, title: row.title });
     this.send({ type: "history", log });
+    this.resumeTranscript = transcriptOf(log);
     this.planDelivered = true;
     this.bridged = true;
     if (row.planJson) {
@@ -230,6 +234,20 @@ export class Session {
       return;
     }
     if (result.status === "error") {
+      if (result.lostSession && this.resumeTranscript !== null && !this.recovered && this.brain.forget) {
+        // The saved board outlived the CLI session. Start a fresh one, seeded with what was said.
+        this.recovered = true;
+        log.warn("brain session lost for board", this.id, "- starting a fresh one from the transcript");
+        this.brain.forget();
+        const plan = await this.plan;
+        await this.runTurn(
+          `[You are continuing a saved lesson. Everything below is already on the board and was already said; do not rewrite or repeat it. Pick up exactly where it stops.${
+            plan ? `\n\nLesson plan: "${plan.title}": ${plan.sections.map((s, i) => `${i + 1}. ${s.title}`).join(" ")}` : ""
+          }\n\nTranscript so far:\n${this.resumeTranscript}]\n\n${userText}`,
+        );
+        return;
+      }
+      log.warn("turn failed for board", this.id, result.message);
       this.send({ type: "error", message: result.message ?? "the tutor stopped unexpectedly" });
       this.setState("waiting");
       return;
@@ -241,4 +259,16 @@ export class Session {
 function titleFrom(topic: string): string {
   const t = topic.replace(/\s+/g, " ").trim();
   return t.length > 60 ? t.slice(0, 57).trimEnd() + "..." : t || "Untitled lesson";
+}
+
+/** The spoken side of a saved log as plain lines, most recent 6000 characters. */
+function transcriptOf(log: ReturnType<Store["log"]>): string {
+  const lines: string[] = [];
+  for (const row of log) {
+    if (row.kind === "user") lines.push(`Student: ${row.text}`);
+    else if (row.event.type === "say") lines.push(`Tutor: ${row.event.text}`);
+    else if (row.event.type === "section") lines.push(`[Section: ${row.event.title}]`);
+  }
+  const text = lines.join("\n");
+  return text.length > 6000 ? "...\n" + text.slice(-6000) : text;
 }

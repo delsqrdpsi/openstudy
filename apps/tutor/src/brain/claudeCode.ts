@@ -1,8 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type { Brain, TurnInput, TurnResult } from "./types";
 import { log } from "../log";
 
@@ -12,6 +11,10 @@ import { log } from "../log";
  * interrupt is just killing the current process. Bills to the Claude plan the
  * CLI is logged in with. Runs in an empty directory with no tools so no repo
  * context or CLAUDE.md gets pulled in.
+ *
+ * The directory is the same for every lesson: the CLI files sessions under
+ * the directory they were started in, so a saved board can only be resumed
+ * from the directory its session was created in.
  */
 export class ClaudeCodeBrain implements Brain {
   readonly name = "claude-code";
@@ -21,7 +24,11 @@ export class ClaudeCodeBrain implements Brain {
 
   constructor(readonly model: string, sessionId: string | null = null, private readonly bin = process.env.CLAUDE_BIN ?? "claude") {
     this.sessionId = sessionId;
-    this.cwd = mkdtempSync(join(tmpdir(), "openstudy-brain-"));
+    this.cwd = brainDir();
+  }
+
+  forget() {
+    this.sessionId = null;
   }
 
   /** The CLI session this brain resumes. Saved with the board so a lesson can continue later. */
@@ -88,7 +95,8 @@ export class ClaudeCodeBrain implements Brain {
             }
           } else if (msg.type === "result") {
             const r = msg as { is_error?: boolean; result?: string; total_cost_usd?: number; usage?: unknown };
-            if (r.is_error) result = { status: "error", message: String(r.result ?? "unknown error") };
+            // An error result often carries no text; the reason is on stderr, read at close.
+            if (r.is_error) result = { status: "error", message: r.result ? String(r.result) : undefined };
             else result = { status: "ok", meta: { cost_usd: r.total_cost_usd, usage: r.usage } };
           }
         }
@@ -98,10 +106,11 @@ export class ClaudeCodeBrain implements Brain {
       child.on("close", (code) => {
         signal.removeEventListener("abort", onAbort);
         this.child = null;
-        if (result) return resolve(result);
-        if (sawText && code === 0) return resolve({ status: "ok" });
-        log.warn("claude exited", code, stderr.slice(0, 500));
-        resolve({ status: "error", message: stderr.trim().split("\n").at(-1) || `claude exited with code ${code}` });
+        if (result?.status === "ok" || result?.status === "aborted") return resolve(result);
+        if (!result && sawText && code === 0) return resolve({ status: "ok" });
+        const message = result?.message || stderr.trim().split("\n").at(-1) || `claude exited with code ${code}`;
+        log.warn("claude turn failed:", message);
+        resolve({ status: "error", message, lostSession: /no conversation found/i.test(message) });
       });
     });
   }
@@ -109,4 +118,11 @@ export class ClaudeCodeBrain implements Brain {
   close() {
     this.child?.kill("SIGTERM");
   }
+}
+
+/** One empty directory for every CLI run, under the data dir, created on first use. */
+function brainDir(): string {
+  const dir = process.env.DATA_DIR ? join(process.env.DATA_DIR, "brain") : resolve(process.cwd(), "../../data/brain");
+  mkdirSync(dir, { recursive: true });
+  return dir;
 }
