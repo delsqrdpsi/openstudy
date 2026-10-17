@@ -3,16 +3,16 @@ import type { ImageStore } from "./store";
 import { stylePrompt } from "./style";
 
 /**
- * OpenAI image models. gpt-image-1 draws the most legible labels but takes
- * 20 to 30 seconds at medium quality; gpt-image-1-mini at low quality is
- * about 8 seconds and a fraction of the price, and is plenty for a pencil
- * sketch on a whiteboard, so that is the default.
+ * OpenAI image models. gpt-image-1 draws the most legible labels: about
+ * 11 seconds at low quality (the default) and 20 to 30 at medium.
+ * gpt-image-1-mini at low quality is a couple of seconds faster and much
+ * cheaper, if that matters more than label quality.
  * Env: OPENAI_API_KEY, optional OPENAI_IMAGE_MODEL (gpt-image-1-mini | gpt-image-1),
  * OPENAI_IMAGE_QUALITY (low | medium | high), OPENAI_IMAGE_SIZE (1536x1024 | 1024x1024 | 1024x1536).
  */
 export class OpenAIImages implements ImageBackend {
   readonly name = "openai";
-  private readonly model = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1-mini";
+  private readonly model = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1";
   private readonly quality = process.env.OPENAI_IMAGE_QUALITY ?? "low";
   private readonly size = process.env.OPENAI_IMAGE_SIZE ?? "1536x1024";
   constructor(private readonly store: ImageStore, private readonly apiKey = process.env.OPENAI_API_KEY ?? "") {
