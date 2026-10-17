@@ -1,7 +1,7 @@
 "use client";
 import type { EmbedBlock as EmbedBlockT } from "@openstudy/shared";
 
-export const EMBED_W = 560;
+export const EMBED_W = 640;
 
 /**
  * An interactive model on the board: a self-contained page (an Anatomy
@@ -19,7 +19,7 @@ export function EmbedBlock({ block }: { block: EmbedBlockT }) {
             ↗
           </a>
         </div>
-        <iframe src={block.src} title={block.title ?? "Interactive model"} sandbox="allow-scripts" loading="lazy" />
+        <iframe src={block.src} title={block.title ?? "Interactive model"} sandbox="allow-scripts" loading="lazy" style={{ height: block.height - 30 }} />
       </div>
       {block.caption && <div className="wb-caption">{block.caption}</div>}
     </div>

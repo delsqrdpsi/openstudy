@@ -24,6 +24,9 @@ The plan and the reasoning behind it are in [PLAN.md](PLAN.md).
       from the home page and keep talking to the same tutor session
 - [x] Phase 6 (part): PDFs and text files you attach are read in the browser;
       any board can be printed or saved as PDF
+- [x] Interactive models: a figure library built with the Anatomy skill,
+      shown on the board in sandboxed frames; animated `@motion` diagrams for
+      live motion; "build me a model" jobs that run Anatomy in the background
 - [ ] Next: image and scanned-PDF reading, hosted voices, source pages on the board
 
 ## Run it
@@ -58,6 +61,14 @@ The scripted demo lesson on the home page runs with no model at all.
   The planner is a separate one-shot call on Fable with structured output.
 - Voice uses the browser's speech synthesis and recognition. Hosted voices
   (ElevenLabs, Deepgram) can be added behind the same hooks.
+- Interactive models come from `figures/` (see its README). Each is a
+  self-contained page built with the Anatomy skill, shown in a sandboxed
+  frame. The tutor places one with `@figure`, draws simple motion with
+  `@motion` (animated SVG, seconds), and can request a new model with
+  `@build_figure`, which runs the skill through the `claude` CLI in the
+  background and adds the result to the saved board when it finishes
+  (tens of minutes). Seed more examples with `pnpm figures:seed` after
+  `npx skills add wheresryan22/anatomy -g -a claude-code`.
 
 ## Checks
 

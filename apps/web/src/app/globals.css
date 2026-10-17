@@ -238,6 +238,8 @@ body {
   height: calc(100% - 30px);
   border: 0;
   background: #fff;
+  /* figure pages bring their own light grey page colour; blend it into the card */
+  mix-blend-mode: multiply;
 }
 .wb-embed-handle {
   height: 30px;
