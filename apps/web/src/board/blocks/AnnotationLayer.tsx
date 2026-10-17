@@ -23,7 +23,13 @@ export function AnnotationLayer({ annotations, targetEl, scale, version }: Props
     const out: Drawn[] = [];
     if (!targetEl) return out;
     for (const a of annotations) {
-      let rects: Rect[] = measureMatch(targetEl, a.match, scale);
+      let rects: Rect[] = [];
+      if (a.region) {
+        const r = targetEl.getBoundingClientRect();
+        const W = r.width / scale;
+        const H = r.height / scale;
+        rects = [{ x: a.region.x * W, y: a.region.y * H, w: a.region.w * W, h: a.region.h * H }];
+      } else if (a.match) rects = measureMatch(targetEl, a.match, scale);
       if (!rects.length) {
         // Fall back to the whole block so the gesture still lands somewhere.
         const r = targetEl.getBoundingClientRect();

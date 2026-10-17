@@ -12,7 +12,11 @@ export interface StartOptions {
 const WS_URL = process.env.NEXT_PUBLIC_TUTOR_WS ?? "ws://localhost:8787/ws";
 
 /** A live lesson over the tutor server's websocket. */
-export function useLiveSession() {
+export function useLiveSession(opts: { onSay?: (text: string) => void } = {}) {
+  const optsRef = useRef(opts);
+  useEffect(() => {
+    optsRef.current = opts;
+  }, [opts]);
   const [state, setState] = useState<BoardState>(() => emptyBoard());
   const [turn, setTurn] = useState<TurnState>("idle");
   const [options, setOptions] = useState<string[]>([]);
@@ -54,6 +58,7 @@ export function useLiveSession() {
           setState((s) => applyEvent(s, m.event));
           const entry = entryFromEvent(m.event);
           if (entry) setTranscript((t) => pushEntry(t, entry));
+          if (m.event.type === "say") optsRef.current.onSay?.(m.event.text);
           if (m.event.type === "block.append" || (m.event.type === "block.add" && m.event.block.type === "html")) {
             const id = m.event.type === "block.append" ? m.event.id : m.event.block.id;
             setWritingId(id);

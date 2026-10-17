@@ -16,7 +16,7 @@ import { planLesson, planForTutor } from "./planner";
 import { log } from "./log";
 
 /** How long the first teaching turn waits for the planner before going without it. */
-const PLAN_WAIT_MS = Number(process.env.PLAN_WAIT_MS ?? 30000);
+const PLAN_WAIT_MS = Number(process.env.PLAN_WAIT_MS ?? 12000);
 
 /**
  * One lesson. Owns the transcript, the board state, the parser, the planner
@@ -34,6 +34,7 @@ export class Session {
   private plan: Promise<LessonPlan | null> = Promise.resolve(null);
   private planDelivered = false;
   private bridged = false;
+  private latePlan: LessonPlan | null = null;
   /** Pictures generated ahead of time from the plan, by block id. */
   private readyImages = new Map<string, Promise<string>>();
 
@@ -80,13 +81,24 @@ export class Session {
         );
         return;
       }
-      this.planDelivered = true;
       const plan = quick ?? (await Promise.race([this.plan, new Promise<null>((r) => setTimeout(() => r(null), PLAN_WAIT_MS))]));
       if (plan) {
+        this.planDelivered = true;
         await this.runTurn(`${planForTutor(plan)}\n\nThe student answered your intake questions: "${text}"\nAdapt the plan to that answer (skip or reorder sections if needed) before writing it.`);
         return;
       }
-      await this.runTurn(`${text}\n\n[No planner result. Write a short numbered plan block yourself (id=plan, col 0), then teach section 1.]`);
+      // Still no plan: start anyway and hand the plan over on the next turn.
+      await this.runTurn(`${text}\n\n[The planner is late. Write a short provisional plan block yourself (id=plan, col 0) and teach the first concept. A fuller plan may arrive next turn; merge it then.]`);
+      this.plan.then((p) => {
+        if (p && !this.planDelivered) this.latePlan = p;
+      });
+      return;
+    }
+    if (this.latePlan) {
+      const p = this.latePlan;
+      this.latePlan = null;
+      this.planDelivered = true;
+      await this.runTurn(`${planForTutor(p)}\n\n[Merge this with the provisional plan already on the board: re-send the plan block (id=plan) with the merged list, keep what you already taught, continue from where you are.]\n\nThe student says: "${text}"`);
       return;
     }
     await this.runTurn(text);

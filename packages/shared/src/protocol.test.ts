@@ -69,6 +69,14 @@ describe("protocol", () => {
     expect(events.at(-1)).toEqual({ type: "say", text: "Just talking." });
   });
 
+  it("parses region and named positions on annotations", () => {
+    const { events, signals } = parseProtocol('@annotate id=a target=pic kind=circle at=top-left\n@annotate id=b target=pic kind=highlight region="0.1,0.2,0.5,0.25"\n@annotate id=c target=pic kind=circle\n');
+    expect(events[0]).toMatchObject({ type: "block.add", block: { id: "a", region: { x: 0.03, y: 0.03 } } });
+    expect(events[1]).toMatchObject({ type: "block.add", block: { id: "b", region: { x: 0.1, y: 0.2, w: 0.5, h: 0.25 } } });
+    expect(events).toHaveLength(2);
+    expect(signals[0]).toMatchObject({ type: "error" });
+  });
+
   it("parses ask options", () => {
     const { signals } = parseProtocol('@say Which one?\n@ask options="A motor burnout|A logic hang|A broken sensor"\n');
     expect(signals).toEqual([{ type: "ask", options: ["A motor burnout", "A logic hang", "A broken sensor"] }]);

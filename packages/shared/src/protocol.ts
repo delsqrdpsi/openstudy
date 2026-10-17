@@ -146,8 +146,13 @@ export class ProtocolParser {
       case "annotate": {
         this.closeOpen();
         const id = this.uniqueId(attrs.id ?? `ann_${this.seen.size}`);
+        const region = parseRegion(attrs.region, attrs.at);
+        if (!region && !attrs.match) {
+          this.sink.signal({ type: "error", message: "annotation needs match, region or at", line });
+          return;
+        }
         const block = this.validate(
-          { id, type: "annotation", target: attrs.target ?? "", kind: attrs.kind ?? "highlight", match: attrs.match ?? "", color: attrs.color },
+          { id, type: "annotation", target: attrs.target ?? "", kind: attrs.kind ?? "highlight", match: attrs.match ?? "", region, color: attrs.color },
           line,
         );
         if (block) this.sink.event({ type: "block.add", block });
@@ -200,6 +205,34 @@ const num = (v: string | undefined) => {
   const n = parseInt(v ?? "0", 10);
   return Number.isFinite(n) ? Math.max(0, Math.min(7, n)) : 0;
 };
+
+const AT: Record<string, [number, number, number, number]> = {
+  center: [0.3, 0.3, 0.4, 0.4],
+  left: [0.03, 0.15, 0.42, 0.7],
+  right: [0.55, 0.15, 0.42, 0.7],
+  top: [0.15, 0.03, 0.7, 0.4],
+  bottom: [0.15, 0.57, 0.7, 0.4],
+  "top-left": [0.03, 0.03, 0.42, 0.45],
+  "top-right": [0.55, 0.03, 0.42, 0.45],
+  "bottom-left": [0.03, 0.52, 0.42, 0.45],
+  "bottom-right": [0.55, 0.52, 0.42, 0.45],
+  all: [0.02, 0.02, 0.96, 0.96],
+};
+
+/** region="x,y,w,h" as fractions, or a named position. */
+export function parseRegion(region?: string, at?: string): { x: number; y: number; w: number; h: number } | undefined {
+  const clamp = (v: number) => Math.max(0, Math.min(1, v));
+  if (region) {
+    const n = region.split(/[\s,]+/).map(Number);
+    if (n.length === 4 && n.every(Number.isFinite)) return { x: clamp(n[0]), y: clamp(n[1]), w: clamp(n[2]), h: clamp(n[3]) };
+  }
+  const key = at?.toLowerCase().replace(/[\s_]+/g, "-");
+  if (key && AT[key]) {
+    const [x, y, w, h] = AT[key];
+    return { x, y, w, h };
+  }
+  return undefined;
+}
 
 /** key=value pairs; values may be double-quoted with \" escapes. */
 export function parseAttrs(s: string): Record<string, string> {

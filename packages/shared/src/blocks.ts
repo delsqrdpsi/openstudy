@@ -49,8 +49,10 @@ export const AnnotationBlockSchema = z.object({
   /** Id of the block this annotation sits on. */
   target: BlockIdSchema,
   kind: AnnotationKindSchema,
-  /** Text to find inside the target block. First match wins. */
-  match: z.string().min(1),
+  /** Text to find inside the target block. First match wins. Empty when a region is given. */
+  match: z.string().default(""),
+  /** Fraction of the target block's box (0 to 1), for pictures and diagrams. */
+  region: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().min(0).max(1), h: z.number().min(0).max(1) }).optional(),
   color: z.string().optional(),
 });
 
@@ -71,7 +73,7 @@ export type ContentBlock = Exclude<Block, AnnotationBlock>;
 export const isContentBlock = (b: Block): b is ContentBlock => b.type !== "annotation";
 
 export const ANNOTATION_COLORS: Record<z.infer<typeof AnnotationKindSchema>, string> = {
-  highlight: "#9fe3c3",
+  highlight: "#e9ff4a",
   circle: "#e4572e",
   underline: "#0f9d8a",
 };

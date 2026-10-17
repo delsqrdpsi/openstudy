@@ -51,6 +51,11 @@ class Script {
     this.events.push({ at: this.t, event: { type: "block.add", block: { id, type: "annotation", target, kind, match } } });
     return this;
   }
+  /** Annotate part of a picture or diagram by region (fractions of its box). */
+  annotateRegion(id: string, target: string, kind: "highlight" | "circle", region: { x: number; y: number; w: number; h: number }) {
+    this.events.push({ at: this.t, event: { type: "block.add", block: { id, type: "annotation", target, kind, match: "", region } } });
+    return this;
+  }
 }
 
 const s = new Script();
@@ -83,6 +88,9 @@ s.at(0)
   .annotate("ann_reward", "loop", "circle", "Reward")
   .wait(2500)
   .say("Right, that's the reward. Negative reward is still reward. The agent learns to avoid it.")
+  .annotateRegion("ann_coin", "loop_sketch", "circle", { x: 0.52, y: 0.5, w: 0.14, h: 0.26 })
+  .say("In the sketch, that coin is the reward the robot is after.")
+  .annotate("ann_feedback", "big_picture", "highlight", "Just feedback")
   .wait(800)
 
   .section("Three ways to learn a skill")

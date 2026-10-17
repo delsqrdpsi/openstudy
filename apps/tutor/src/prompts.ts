@@ -32,10 +32,11 @@ Each line is either a command starting with @ or content inside a block. Never w
 @end
 @image id=<id> col=<n> prompt="<what to draw>" caption="<optional>"
 @annotate id=<id> target=<block id> kind=<highlight|circle|underline> match="<exact text in that block>"
+@annotate id=<id> target=<picture or diagram id> kind=<highlight|circle> at=<center|left|right|top|bottom|top-left|top-right|bottom-left|bottom-right>
+@annotate id=<id> target=<picture or diagram id> kind=<highlight|circle> region="x,y,w,h"   (fractions of the picture, 0 to 1)
 @focus id=<block id>
 @remove id=<block id>
 @ask
-@ask options="first choice|second choice|third choice"
 @done
 
 Rules:
@@ -45,9 +46,9 @@ Rules:
 - svg: viewBox exactly "0 0 300 200". Use line, rect, circle, ellipse, polyline, polygon, path, text. Stroke colours from #222222, #0085CF, #C73C3C, #2E9E5B, #E39B1A. font-size 13 to 16 for text. No gradients, no filters, no external fonts, no images. The client redraws it in a hand-drawn style.
 ${images}
 - Interleave @say lines between blocks so speech and writing happen together. Two to four @say lines per concept.
-- Point with the pen while you talk. When a spoken line refers to something already on the board, follow it with an @annotate: circle the thing you are pointing at, highlight the phrase that answers a question, underline a word you are stressing. One or two per concept, placed right after the @say line that mentions it. Annotations may target any earlier block, including ones from previous turns.
+- Point with the pen while you talk. When a spoken line refers to something already on the board, follow it with an @annotate: sweep the highlighter over the phrase you are explaining (kind=highlight, any phrase in any text block, or a part of a picture or diagram with at= or region=), circle the single thing you are pointing at, underline a word you are stressing. One or two per concept, placed right after the @say line that mentions it. Annotations may target any earlier block, including ones from previous turns. For diagrams you can also match the label text inside them.
 - @ask ends your turn. After @ask write nothing else. Always end a turn with @ask, or @done at the very end.
-- For a quick check with a clear right answer, offer two to four short options with @ask options="...". The student may still type instead. Use plain @ask for open questions.
+- Never offer multiple-choice options. The student answers in their own words.
 - Never repeat a block id unless you intend to replace that block.
 - If the student's message is a question, answer it on the board and in speech, then return to the rhythm.
 

@@ -10,14 +10,15 @@ interface Props {
   state: BoardState;
   turn: TurnState;
   transcript: TranscriptEntry[];
-  options?: string[];
   writingId?: string | null;
   statusNote?: string | null;
   /** Student input. Omit for read-only playback. */
   onSay?: (text: string) => void;
   onInterrupt?: () => void;
-  /** Extra controls rendered in the bottom-left cluster (playback, etc). */
+  /** Extra controls rendered in the bottom-left cluster (playback, voice). */
   extraControls?: React.ReactNode;
+  /** Spoken caption with word progress; falls back to the last tutor line. */
+  caption?: { text: string; wordIndex: number } | null;
 }
 
 /**
@@ -25,7 +26,7 @@ interface Props {
  * keypoints bottom-right of the board, question options and the input bar
  * along the bottom. Shared by live lessons and fixture playback.
  */
-export function LessonShell({ title, state, turn, transcript, options = [], writingId, statusNote, onSay, onInterrupt, extraControls }: Props) {
+export function LessonShell({ title, state, turn, transcript, writingId, statusNote, onSay, onInterrupt, extraControls, caption }: Props) {
   const board = useRef<BoardHandle>(null);
   const [scale, setScale] = useState(1);
   const [follow, setFollow] = useState(true);
@@ -101,18 +102,19 @@ export function LessonShell({ title, state, turn, transcript, options = [], writ
 
         {/* current line + options + input */}
         <div className="pointer-events-none absolute bottom-4 left-4 right-4 z-20 flex flex-col items-center gap-3">
-          {lastTutor && turn !== "idle" && (
-            <p className="max-w-[760px] rounded-2xl bg-[rgba(246,247,244,0.85)] px-4 py-1.5 text-center text-[17px] leading-snug text-[var(--ink)] backdrop-blur-sm">{lastTutor.text.split(/(?<=[.?!])\s+/).slice(-2).join(" ")}</p>
-          )}
-          {options.length > 0 && onSay && (
-            <div className="pointer-events-auto flex flex-wrap justify-center gap-2">
-              {options.map((o, i) => (
-                <button key={i} className="ui-chip" onClick={() => submit(o)}>
-                  <span className="letter">{String.fromCharCode(65 + i)}</span>
-                  {o}
-                </button>
+          {caption ? (
+            <p className="max-w-[760px] rounded-2xl bg-[rgba(246,247,244,0.85)] px-4 py-1.5 text-center text-[17px] leading-snug text-[var(--ink)] backdrop-blur-sm">
+              {caption.text.split(/\s+/).map((w, i) => (
+                <span key={i} className={i <= caption.wordIndex ? "opacity-100" : "opacity-35"} style={{ transition: "opacity 80ms" }}>
+                  {w}{" "}
+                </span>
               ))}
-            </div>
+            </p>
+          ) : (
+            lastTutor &&
+            turn !== "idle" && (
+              <p className="max-w-[760px] rounded-2xl bg-[rgba(246,247,244,0.85)] px-4 py-1.5 text-center text-[17px] leading-snug text-[var(--ink)] backdrop-blur-sm">{lastTutor.text.split(/(?<=[.?!])\s+/).slice(-2).join(" ")}</p>
+            )
           )}
           <div className="flex w-full items-end justify-between gap-3">
             <div className="pointer-events-auto flex items-center gap-2">{extraControls}</div>
@@ -127,7 +129,7 @@ export function LessonShell({ title, state, turn, transcript, options = [], writ
                 <span className={busy ? "ui-pulse" : "h-2 w-2 rounded-full bg-neutral-300"} aria-hidden />
                 <input
                   className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-neutral-400"
-                  placeholder={busy ? "Type to interrupt..." : options.length ? "Pick an option, or type your answer or a question" : "Your answer, or a question"}
+                  placeholder={busy ? "Type to interrupt..." : "Your answer, or a question"}
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   aria-label="Message the tutor"

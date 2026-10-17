@@ -89,9 +89,9 @@ export function union(rects: Rect[]): Rect {
   return { x, y, w: right - x, h: bottom - y };
 }
 
-/** A marker stroke: a slightly skewed rounded band over one line of text. */
+/** A highlighter stroke: a slightly skewed band, a touch taller than the text, with soft ends. */
 export function markerPath(r: Rect, rnd: () => number): string {
-  const pad = r.h * 0.12;
+  const pad = -r.h * 0.06;
   const x0 = r.x - 6;
   const x1 = r.x + r.w + 6;
   const y0 = r.y + pad;

@@ -9,6 +9,8 @@ export interface Camera {
 
 export const MIN_SCALE = 0.15;
 export const MAX_SCALE = 3;
+/** Follow mode never zooms out further than this on its own. */
+export const FOLLOW_MIN_SCALE = 0.5;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -105,15 +107,32 @@ export function useViewport(viewportRef: React.RefObject<HTMLDivElement | null>)
     const sh = wh * c.scale;
     let x = c.x;
     let y = c.y;
+    let scale = c.scale;
     const fitsFromOrigin = (wx + ww) * c.scale + pad * 2 <= r.width;
-    if (fitsFromOrigin) x = Math.min(c.x, pad) === c.x && sx >= pad && sx + sw <= r.width - pad ? c.x : pad;
-    else if (sx < pad) x = c.x + (pad - sx);
-    else if (sx + sw > r.width - pad) x = c.x + (r.width - pad - (sx + sw));
-    if (sy < pad) y = c.y + (pad - sy);
-    else if (sy + sh > r.height - pad) y = c.y + (r.height - pad - (sy + sh));
-    if (sh > r.height - pad * 2) y = c.y + (pad - sy); // tall block: show its top
-    if (x === c.x && y === c.y) return;
-    animateTo({ x, y, scale: c.scale });
+    if (fitsFromOrigin) x = sx >= pad && sx + sw <= r.width - pad && c.x <= pad + 1 ? c.x : pad;
+    else {
+      // The board has grown past the window: zoom out a little so the left
+      // edge stays in view, the way a person steps back from a whiteboard.
+      const needed = (r.width - pad * 2) / (wx + ww);
+      if (needed >= FOLLOW_MIN_SCALE) {
+        scale = needed;
+        x = pad;
+      } else if (sx < pad) x = c.x + (pad - sx);
+      else if (sx + sw > r.width - pad) x = c.x + (r.width - pad - (sx + sw));
+    }
+    if (scale !== c.scale) {
+      // keep the block's vertical position sensible at the new scale
+      const top = wy * scale;
+      y = Math.min(pad - top + pad, c.y);
+      if (wh * scale > r.height - pad * 2 || top + c.y < pad) y = pad - top + pad;
+      if (top + y + wh * scale > r.height - pad) y = r.height - pad - (top + wh * scale);
+    } else {
+      if (sy < pad) y = c.y + (pad - sy);
+      else if (sy + sh > r.height - pad) y = c.y + (r.height - pad - (sy + sh));
+      if (sh > r.height - pad * 2) y = c.y + (pad - sy); // tall block: show its top
+    }
+    if (x === c.x && y === c.y && scale === c.scale) return;
+    animateTo({ x, y, scale });
   }, [viewportRef, animateTo]);
 
   useEffect(() => {
