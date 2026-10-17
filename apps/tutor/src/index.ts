@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 import { ClientMessageSchema, type ServerMessage } from "@openstudy/shared";
 import { createBrain } from "./brain";
-import { createImages } from "./images";
+import { createImages, imageStore } from "./images";
 import { Session } from "./session";
 import { log } from "./log";
 
@@ -11,8 +11,16 @@ const PORT = Number(process.env.TUTOR_PORT ?? 8787);
 const http = createServer((req, res) => {
   if (req.url === "/health") {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: true, brain: process.env.BRAIN ?? "claude-code", images: process.env.IMAGES ?? "placeholder" }));
+    res.end(JSON.stringify({ ok: true, brain: process.env.BRAIN ?? "claude-code", images: process.env.IMAGES ?? (process.env.GEMINI_API_KEY ? "gemini" : "none") }));
     return;
+  }
+  if (req.url?.startsWith("/images/")) {
+    const file = imageStore.read(decodeURIComponent(req.url.slice("/images/".length)));
+    if (file) {
+      res.writeHead(200, { "content-type": file.type, "cache-control": "public, max-age=31536000, immutable", "access-control-allow-origin": "*" });
+      res.end(file.bytes);
+      return;
+    }
   }
   res.writeHead(404);
   res.end();

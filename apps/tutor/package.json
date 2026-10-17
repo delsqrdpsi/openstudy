@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
+    "dev": "tsx --env-file-if-exists=../../.env watch src/index.ts",
+    "start": "tsx --env-file-if-exists=../../.env src/index.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vitest run"
+    "test": "vitest run",
+    "bench:images": "tsx --env-file-if-exists=../../.env src/images/bench.ts"
   },
   "dependencies": {
     "@openstudy/shared": "workspace:*",

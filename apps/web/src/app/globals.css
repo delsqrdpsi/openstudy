@@ -162,12 +162,12 @@ body {
   margin-top: 6px;
 }
 
-/* Image placeholder: a pencil hatching the frame, loop */
+/* Image loader: a scribble draws itself and fades, a pencil rides along it */
 .wb-sketching {
   width: 100%;
   height: 100%;
-  border: 2px dashed rgba(31, 42, 55, 0.25);
-  border-radius: 10px;
+  border-radius: 12px;
+  background: rgba(31, 42, 55, 0.035);
   position: relative;
   overflow: hidden;
 }
@@ -176,44 +176,50 @@ body {
   inset: 0;
   width: 100%;
   height: 100%;
+  overflow: visible;
 }
-.wb-sketching .hatch {
+.wb-sketching .scribble {
   stroke: var(--ink);
-  stroke-width: 1.6;
+  stroke-width: 2;
   stroke-linecap: round;
-  opacity: 0.35;
-  stroke-dasharray: 600;
-  stroke-dashoffset: 600;
-  animation: wb-hatch 2.6s ease-in-out infinite;
+  stroke-dasharray: 1600;
+  stroke-dashoffset: 1600;
+  opacity: 0.45;
+  animation: wb-scribble 4s ease-in-out infinite;
 }
-@keyframes wb-hatch {
+@keyframes wb-scribble {
   0% {
-    stroke-dashoffset: 600;
-    opacity: 0;
+    stroke-dashoffset: 1600;
+    opacity: 0.45;
   }
-  15% {
-    opacity: 0.35;
-  }
-  60% {
+  70% {
     stroke-dashoffset: 0;
-    opacity: 0.35;
+    opacity: 0.45;
   }
-  85% {
-    opacity: 0;
-  }
+  90%,
   100% {
     stroke-dashoffset: 0;
     opacity: 0;
   }
 }
-.wb-sketching .label {
-  position: absolute;
-  left: 50%;
-  bottom: 14px;
-  transform: translateX(-50%);
-  font-family: var(--wb-font-head);
-  font-size: 18px;
-  color: var(--ink-faint);
+.wb-sketching .pencil {
+  offset-rotate: auto;
+  animation: wb-ride 4s ease-in-out infinite;
+}
+@keyframes wb-ride {
+  0% {
+    offset-distance: 0%;
+    opacity: 1;
+  }
+  70% {
+    offset-distance: 100%;
+    opacity: 1;
+  }
+  80%,
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
 }
 
 /* Annotation draw-on */

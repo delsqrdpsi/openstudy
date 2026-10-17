@@ -89,7 +89,11 @@ export function useViewport(viewportRef: React.RefObject<HTMLDivElement | null>)
     else setCamera({ x, y, scale });
   }, [viewportRef, animateTo]);
 
-  /** Pan so a world rect is visible, keeping scale. Used by follow-tutor. */
+  /**
+   * Pan so a world rect is visible, keeping scale. Used by follow-tutor.
+   * Prefers keeping the left edge of the board in view, so earlier columns
+   * stay readable while the tutor writes further right.
+   */
   const revealRect = useCallback((wx: number, wy: number, ww: number, wh: number, pad = 80) => {
     const el = viewportRef.current;
     if (!el) return;
@@ -99,15 +103,17 @@ export function useViewport(viewportRef: React.RefObject<HTMLDivElement | null>)
     const sy = wy * c.scale + c.y;
     const sw = ww * c.scale;
     const sh = wh * c.scale;
-    let dx = 0;
-    let dy = 0;
-    if (sx < pad) dx = pad - sx;
-    else if (sx + sw > r.width - pad) dx = r.width - pad - (sx + sw);
-    if (sy < pad) dy = pad - sy;
-    else if (sy + sh > r.height - pad) dy = r.height - pad - (sy + sh);
-    if (sh > r.height - pad * 2) dy = pad - sy; // tall block: show its top
-    if (dx === 0 && dy === 0) return;
-    animateTo({ x: c.x + dx, y: c.y + dy, scale: c.scale });
+    let x = c.x;
+    let y = c.y;
+    const fitsFromOrigin = (wx + ww) * c.scale + pad * 2 <= r.width;
+    if (fitsFromOrigin) x = Math.min(c.x, pad) === c.x && sx >= pad && sx + sw <= r.width - pad ? c.x : pad;
+    else if (sx < pad) x = c.x + (pad - sx);
+    else if (sx + sw > r.width - pad) x = c.x + (r.width - pad - (sx + sw));
+    if (sy < pad) y = c.y + (pad - sy);
+    else if (sy + sh > r.height - pad) y = c.y + (r.height - pad - (sy + sh));
+    if (sh > r.height - pad * 2) y = c.y + (pad - sy); // tall block: show its top
+    if (x === c.x && y === c.y) return;
+    animateTo({ x, y, scale: c.scale });
   }, [viewportRef, animateTo]);
 
   useEffect(() => {
