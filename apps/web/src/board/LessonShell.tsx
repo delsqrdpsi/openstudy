@@ -50,7 +50,7 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
   const currentSection = state.sections[state.sections.length - 1];
 
   return (
-    <main className="flex h-full w-full overflow-hidden">
+    <main className="flex h-full w-full overflow-hidden" data-turn={turn}>
       <section className="relative min-w-0 flex-1">
         <Board ref={board} state={state} writingId={writingId} follow={follow} onScaleChange={onScale} />
 

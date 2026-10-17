@@ -74,7 +74,7 @@ export function LiveView() {
               title={voice.supported.stt ? (voice.listening ? "Mic is on. Click to mute." : "Turn the mic on to talk to the tutor") : "Speech recognition needs Chrome or Edge"}
               aria-label={voice.listening ? "Mute microphone" : "Unmute microphone"}
             >
-              {voice.listening ? "🎙" : "🎙̸"}
+              <MicIcon off={!voice.listening} />
             </button>
             <button
               className={`ui-btn${voice.muted ? "" : " is-on"}`}
@@ -83,7 +83,7 @@ export function LiveView() {
               title={voice.muted ? "Tutor voice is off" : "Tutor voice is on"}
               aria-label={voice.muted ? "Unmute tutor" : "Mute tutor"}
             >
-              {voice.muted ? "🔇" : "🔊"}
+              <SpeakerIcon off={voice.muted} />
             </button>
             <button className="ui-btn" onClick={() => setShowVoiceMenu((v) => !v)} aria-label="Voice settings" title="Speech speed">
               {voice.rate.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")}×
@@ -103,5 +103,24 @@ export function LiveView() {
         </>
       }
     />
+  );
+}
+
+function MicIcon({ off }: { off: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8" />
+      {off && <path d="M4 4l16 16" />}
+    </svg>
+  );
+}
+
+function SpeakerIcon({ off }: { off: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M4 10v4h4l5 4V6L8 10H4z" />
+      {off ? <path d="M18 9l-4 6M14 9l4 6" /> : <path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11" />}
+    </svg>
   );
 }

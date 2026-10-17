@@ -114,6 +114,15 @@ The avatar is an inline SVG whose eyes and mouth are animated with
 
 ### Decisions (2026-10-17)
 
+- Features follow Studdy; the look does not. OpenStudy has its own identity:
+  graph paper, navy ink, coral and teal pens, Patrick Hand and Architects
+  Daughter faces, a pencil-and-scribble image loader, a chat-history panel
+  with board actions inline, a keypoints tracker. No avatar bubble, no dot
+  cloud, no cream paper.
+- The student always answers in their own words. No multiple choice.
+- Highlighting is a highlighter: it can sweep any phrase in any text block
+  and any region of a picture or diagram, timed to what the tutor is saying.
+
 - Self-hosted, single user. You run it on your own machine. Anyone who clones
   the repo runs it for themselves. It is not a hosted product.
 - Thinking runs on your Claude subscription through Claude Code headless mode,
@@ -303,7 +312,7 @@ Next.js, React, TypeScript, Tailwind. rough.js, KaTeX. Node tutor service
 on localhost. Claude Code headless for planning and tutoring. Gemini Flash
 Image for pictures. faster-whisper and Kokoro for voice. SQLite.
 
-### Build order
+### Build order (phases 0 to 4 done)
 
 0. Repo scaffold, lint, test, `pnpm dev` starts both web and tutor server.
 1. Block schema, board renderer (pan, zoom, columns, handwriting font,

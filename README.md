@@ -11,24 +11,50 @@ The plan and the reasoning behind it are in [PLAN.md](PLAN.md).
 
 - [x] Phase 0: workspace, lint, typecheck, unit and browser tests
 - [x] Phase 1: the board. Blocks, column layout, pan and zoom, handwriting,
-      streamed writing, KaTeX, sketched SVG, image placeholders, annotations,
-      follow-tutor camera. Driven by a scripted fixture lesson, no network.
-- [ ] Phase 2: a text model drives the board through tools (Claude Code headless)
-- [ ] Phase 3: lesson planner, image generation in parallel
-- [ ] Phase 4: voice with interruption
+      streamed writing, KaTeX, sketched SVG, image loader, highlighter, circle
+      and underline annotations (on text, diagrams and pictures), follow camera
+- [x] Phase 2: the tutor. Claude Code headless drives the board through a
+      line protocol; intake, plan, teach, check, adapt; chat history panel;
+      keypoints; typed interruption
+- [x] Phase 3: Fable plans the lesson in parallel with the intake; pictures
+      from Gemini, gpt-image-1 or Flux, generated ahead of time
+- [x] Phase 4: voice in the browser. The tutor speaks, you talk back, talking
+      over it stops it. No keys.
 - [ ] Phase 5: saved boards, history, PDF export
-- [ ] Phase 6: polish
+- [ ] Phase 6: polish, PDF and image reading for materials
 
 ## Run it
 
+You need the `claude` CLI logged in to your Claude plan. Nothing else is
+required; pictures need an image key (see `.env.example`).
+
 ```bash
 pnpm install
-pnpm dev          # http://localhost:3000
+cp .env.example .env     # optional: image keys, models
+pnpm dev                 # web on http://localhost:3000, tutor server on :8787
 ```
 
-Open the fixture lesson from the home page. Scroll to pan, ctrl or cmd plus
-scroll (or pinch) to zoom, drag on empty paper to pan, hold space to drag
-anywhere.
+Type what you want to learn on the home page. The tutor asks a question or
+two, plans, and starts. Answer in the box at the bottom or turn the mic on
+(Chrome or Edge). Scroll to pan, ctrl or cmd plus scroll (or pinch) to zoom,
+drag on empty paper to pan, hold space to drag anywhere.
+
+The scripted demo lesson on the home page runs with no model at all.
+
+## How it is put together
+
+- The tutor writes a line protocol (`@say`, `@html ... @end`, `@svg`,
+  `@image`, `@annotate`, `@ask`) that streams straight onto the board.
+  See `packages/shared/src/protocol.ts`.
+- The board is a document of blocks laid out in columns by the client. The
+  model never places pixels. Diagrams are redrawn in a hand-drawn style with
+  rough.js; pictures come from an image API; annotations are measured from
+  text ranges or picture regions.
+- The brain is the `claude` CLI in headless mode, one process per turn,
+  resumed by session id. It bills to the Claude plan you are logged in with.
+  The planner is a separate one-shot call on Fable with structured output.
+- Voice uses the browser's speech synthesis and recognition. Hosted voices
+  (ElevenLabs, Deepgram) can be added behind the same hooks.
 
 ## Checks
 
@@ -45,6 +71,7 @@ If a system Chromium should be used instead of Playwright's download, set
 ## Layout
 
 ```
-apps/web          Next.js app: the board and the lesson UI
-packages/shared   Block schema, lesson events, board reducer, column layout, fixtures
+apps/web          Next.js app: the board, the lesson UI, voice
+apps/tutor        Tutor server: websocket, sessions, brain and image adapters, planner
+packages/shared   Block schema, lesson events, protocol parser, board reducer, layout, fixtures
 ```
