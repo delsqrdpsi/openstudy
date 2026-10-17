@@ -21,6 +21,8 @@ export interface TurnResult {
 export interface Brain {
   readonly name: string;
   readonly model: string;
+  /** Opaque continuation handle, persisted so a lesson can be resumed. */
+  readonly session: string | null;
   turn(input: TurnInput): Promise<TurnResult>;
   close(): void;
 }

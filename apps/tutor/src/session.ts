@@ -11,6 +11,8 @@ import {
 } from "@openstudy/shared";
 import type { Brain } from "./brain";
 import type { ImageBackend } from "./images";
+import type { Store } from "./store";
+import { LessonPlanSchema } from "@openstudy/shared";
 import { intakeMessage, tutorSystemPrompt } from "./prompts";
 import { planLesson, planForTutor } from "./planner";
 import { log } from "./log";
@@ -41,16 +43,23 @@ export class Session {
   constructor(
     private readonly brain: Brain,
     private readonly images: ImageBackend | null,
+    private readonly store: Store,
     private readonly send: (m: ServerMessage) => void,
-  ) {}
+    id?: string,
+  ) {
+    if (id) this.id = id;
+  }
 
   async start(topic: string, materials: { name: string; text: string }[]) {
     this.board = emptyBoard(topic);
-    this.send({ type: "session", id: this.id, brain: this.brain.name, model: this.brain.model });
+    this.store.createBoard({ id: this.id, title: titleFrom(topic), topic, brain: this.brain.name, model: this.brain.model });
+    this.send({ type: "session", id: this.id, brain: this.brain.name, model: this.brain.model, title: titleFrom(topic) });
     // Plan while the intake conversation happens; usually ready before the student answers.
     this.plan = planLesson({ topic, materials, imagesEnabled: !!this.images })
       .then((plan) => {
         this.pregenerate(plan);
+        this.store.setPlan(this.id, JSON.stringify(plan));
+        this.store.setTitle(this.id, plan.title);
         this.send({ type: "debug", text: `plan: ${plan.title} (${plan.sections.length} sections)` });
         return plan;
       })
@@ -62,7 +71,26 @@ export class Session {
     await this.runTurn(intakeMessage(topic, materials));
   }
 
+  /** Reopen a saved lesson: replay its log to the client and continue the brain's session. */
+  async resume() {
+    const row = this.store.getBoard(this.id);
+    if (!row) throw new Error("no such board");
+    const log = this.store.log(this.id);
+    this.board = emptyBoard(row.topic);
+    for (const e of log) if (e.kind === "event") this.board = applyEvent(this.board, e.event);
+    this.send({ type: "session", id: this.id, brain: this.brain.name, model: this.brain.model, title: row.title });
+    this.send({ type: "history", log });
+    this.planDelivered = true;
+    this.bridged = true;
+    if (row.planJson) {
+      const parsed = LessonPlanSchema.safeParse(JSON.parse(row.planJson));
+      if (parsed.success) this.plan = Promise.resolve(parsed.data);
+    }
+    this.setState("waiting");
+  }
+
   async user(text: string) {
+    this.store.append(this.id, { kind: "user", text });
     if (this.state === "thinking" || this.state === "speaking") {
       // Student spoke over the tutor: stop, remember what was heard, answer.
       this.queued = text;
@@ -133,6 +161,7 @@ export class Session {
   private emit(e: LessonEvent) {
     if (e.type === "block.add" && e.block.type === "image" && !this.images) return; // pictures are off
     this.board = applyEvent(this.board, e);
+    this.store.appendEvent(this.id, e);
     this.send({ type: "event", event: e });
     if (e.type === "say") {
       this.spoken.push(e.text);
@@ -154,6 +183,7 @@ export class Session {
 
   private update(e: LessonEvent) {
     this.board = applyEvent(this.board, e);
+    this.store.appendEvent(this.id, e);
     this.send({ type: "event", event: e });
   }
 
@@ -183,6 +213,7 @@ export class Session {
       onText: (t) => parser.feed(t),
     });
     parser.end();
+    if (this.brain.session) this.store.setBrainSession(this.id, this.brain.session);
 
     if (result.meta) this.send({ type: "debug", text: `turn ${this.turns}: ${JSON.stringify(result.meta)}` });
 
@@ -205,4 +236,9 @@ export class Session {
     }
     this.setState(ended === "done" ? "done" : "waiting", options);
   }
+}
+
+function titleFrom(topic: string): string {
+  const t = topic.replace(/\s+/g, " ").trim();
+  return t.length > 60 ? t.slice(0, 57).trimEnd() + "..." : t || "Untitled lesson";
 }

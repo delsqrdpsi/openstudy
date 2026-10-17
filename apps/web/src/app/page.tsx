@@ -1,7 +1,9 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { BoardSummarySchema, type BoardSummary } from "@openstudy/shared";
+import { TUTOR_HTTP } from "@/board/useLiveSession";
 
 interface Material {
   name: string;
@@ -19,6 +21,22 @@ export default function Home() {
   const [model, setModel] = useState("sonnet");
   const [materials, setMaterials] = useState<Material[]>([]);
   const [skipped, setSkipped] = useState<string[]>([]);
+  const [boards, setBoards] = useState<BoardSummary[] | null>(null);
+
+  const loadBoards = () =>
+    fetch(`${TUTOR_HTTP}/boards`)
+      .then((r) => r.json())
+      .then((rows: unknown[]) => setBoards(rows.map((r) => BoardSummarySchema.parse(r))))
+      .catch(() => setBoards([]));
+  useEffect(() => {
+    const id = window.setTimeout(loadBoards, 0);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  const remove = async (id: string) => {
+    await fetch(`${TUTOR_HTTP}/boards/${id}`, { method: "DELETE" }).catch(() => {});
+    loadBoards();
+  };
 
   const addFiles = async (files: FileList | null) => {
     if (!files) return;
@@ -98,6 +116,27 @@ export default function Home() {
           </div>
         </div>
 
+        {boards && boards.length > 0 && (
+          <section className="mt-8">
+            <div className="text-[12px] font-semibold uppercase tracking-wide text-neutral-400">Your boards</div>
+            <ul className="ui-card mt-2 divide-y divide-neutral-100">
+              {boards.map((b) => (
+                <li key={b.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <Link href={`/live?board=${b.id}`} className="min-w-0 flex-1 hover:text-[var(--coral)]">
+                    <div className="truncate text-[14px] font-medium">{b.title}</div>
+                    <div className="truncate text-[12px] text-neutral-500">
+                      {relative(b.updatedAt)} · {b.blocks} blocks · {b.model}
+                    </div>
+                  </Link>
+                  <button className="ui-btn text-neutral-400 hover:text-[var(--coral)]" onClick={() => remove(b.id)} aria-label={`Delete ${b.title}`} title="Delete board">
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         <div className="mt-8 text-[12px] font-semibold uppercase tracking-wide text-neutral-400">Demo without any model</div>
         <Link href="/lesson/rl101" className="ui-card mt-2 inline-flex items-center gap-2 px-4 py-2 text-[14px] hover:border-[var(--coral)]">
           ▶ Reinforcement Learning 101 <span className="text-neutral-400">scripted playback</span>
@@ -105,4 +144,15 @@ export default function Home() {
       </div>
     </main>
   );
+}
+
+function relative(ts: number): string {
+  const d = Date.now() - ts;
+  const m = Math.round(d / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} h ago`;
+  const days = Math.round(h / 24);
+  return days === 1 ? "yesterday" : `${days} days ago`;
 }

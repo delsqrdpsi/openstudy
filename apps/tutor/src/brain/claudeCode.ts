@@ -15,12 +15,18 @@ import { log } from "../log";
  */
 export class ClaudeCodeBrain implements Brain {
   readonly name = "claude-code";
-  private sessionId: string | null = null;
+  private sessionId: string | null;
   private child: ChildProcess | null = null;
   private readonly cwd: string;
 
-  constructor(readonly model: string, private readonly bin = process.env.CLAUDE_BIN ?? "claude") {
+  constructor(readonly model: string, sessionId: string | null = null, private readonly bin = process.env.CLAUDE_BIN ?? "claude") {
+    this.sessionId = sessionId;
     this.cwd = mkdtempSync(join(tmpdir(), "openstudy-brain-"));
+  }
+
+  /** The CLI session this brain resumes. Saved with the board so a lesson can continue later. */
+  get session(): string | null {
+    return this.sessionId;
   }
 
   async turn({ system, userText, signal, onText }: TurnInput): Promise<TurnResult> {

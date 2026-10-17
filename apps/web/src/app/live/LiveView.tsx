@@ -39,6 +39,11 @@ export function LiveView() {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
+    const board = params.get("board");
+    if (board) {
+      live.start({ resume: board });
+      return;
+    }
     const topic = params.get("topic") ?? "";
     let materials: { name: string; text: string }[] = [];
     try {
@@ -52,6 +57,17 @@ export function LiveView() {
   }, []);
 
   const note = live.error ?? (!live.connected ? "Connecting to the tutor..." : null);
+
+  // Keep the saved board's id in the address bar so a reload reopens it.
+  useEffect(() => {
+    if (live.info?.id && !params.get("board")) {
+      const q = new URLSearchParams(window.location.search);
+      q.delete("topic");
+      q.delete("model");
+      q.set("board", live.info.id);
+      window.history.replaceState(null, "", `/live?${q.toString()}`);
+    }
+  }, [live.info?.id, params]);
 
   return (
     <LessonShell

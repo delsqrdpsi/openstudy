@@ -4,11 +4,14 @@ import { ServerMessageSchema, applyEvent, emptyBoard, type BoardState, type Clie
 import { entryFromEvent, pushEntry, type TranscriptEntry } from "@/lib/transcript";
 
 export interface StartOptions {
-  topic: string;
+  topic?: string;
   materials?: { name: string; text: string }[];
   model?: string;
+  /** Saved board id to reopen and continue. */
+  resume?: string;
 }
 
+export const TUTOR_HTTP = process.env.NEXT_PUBLIC_TUTOR_HTTP ?? "http://localhost:8787";
 const WS_URL = process.env.NEXT_PUBLIC_TUTOR_WS ?? "ws://localhost:8787/ws";
 
 /** A live lesson over the tutor server's websocket. */
@@ -23,7 +26,7 @@ export function useLiveSession(opts: { onSay?: (text: string) => void } = {}) {
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<{ brain: string; model: string } | null>(null);
+  const [info, setInfo] = useState<{ brain: string; model: string; id: string; title: string } | null>(null);
   const [writingId, setWritingId] = useState<string | null>(null);
   const ws = useRef<WebSocket | null>(null);
   const writeTimer = useRef<number | null>(null);
@@ -40,7 +43,8 @@ export function useLiveSession(opts: { onSay?: (text: string) => void } = {}) {
       setConnected(true);
       setError(null);
       if (pending.current) {
-        sock.send(JSON.stringify({ type: "start", ...pending.current }));
+        const o = pending.current;
+        sock.send(JSON.stringify({ type: "start", topic: o.topic ?? "", materials: o.materials ?? [], model: o.model, resume: o.resume }));
         pending.current = null;
       }
     };
@@ -52,8 +56,24 @@ export function useLiveSession(opts: { onSay?: (text: string) => void } = {}) {
       const m = parsed.data;
       switch (m.type) {
         case "session":
-          setInfo({ brain: m.brain, model: m.model });
+          setInfo({ brain: m.brain, model: m.model, id: m.id, title: m.title });
+          setState((s) => ({ ...s, title: m.title }));
           break;
+        case "history": {
+          // Replay a saved lesson: board events and what the student typed, in order.
+          let board = emptyBoard();
+          let list: TranscriptEntry[] = [];
+          for (const row of m.log) {
+            if (row.kind === "event") {
+              board = applyEvent(board, row.event);
+              const entry = entryFromEvent(row.event);
+              if (entry) list = pushEntry(list, entry);
+            } else list = [...list, { kind: "user", text: row.text }];
+          }
+          setState((s) => ({ ...board, title: s.title || board.title, focusId: null }));
+          setTranscript(list);
+          break;
+        }
         case "event": {
           setState((s) => applyEvent(s, m.event));
           const entry = entryFromEvent(m.event);
@@ -84,10 +104,11 @@ export function useLiveSession(opts: { onSay?: (text: string) => void } = {}) {
 
   const start = useCallback(
     (opts: StartOptions) => {
-      setState(emptyBoard(opts.topic));
+      setState(emptyBoard(opts.topic ?? ""));
       setTranscript([]);
       setError(null);
-      if (ws.current?.readyState === WebSocket.OPEN) send({ type: "start", topic: opts.topic, materials: opts.materials ?? [], model: opts.model });
+      const msg: ClientMessage = { type: "start", topic: opts.topic ?? "", materials: opts.materials ?? [], model: opts.model, resume: opts.resume };
+      if (ws.current?.readyState === WebSocket.OPEN) send(msg);
       else pending.current = opts;
     },
     [send],

@@ -20,7 +20,8 @@ The plan and the reasoning behind it are in [PLAN.md](PLAN.md).
       from Gemini, gpt-image-1 or Flux, generated ahead of time
 - [x] Phase 4: voice in the browser. The tutor speaks, you talk back, talking
       over it stops it. No keys.
-- [ ] Phase 5: saved boards, history, PDF export
+- [x] Phase 5: every lesson is saved (SQLite, no native deps); reopen a board
+      from the home page and keep talking to the same tutor session
 - [ ] Phase 6: polish, PDF and image reading for materials
 
 ## Run it

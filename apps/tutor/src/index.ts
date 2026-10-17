@@ -4,15 +4,40 @@ import { ClientMessageSchema, type ServerMessage } from "@openstudy/shared";
 import { createBrain } from "./brain";
 import { createImages, imageStore } from "./images";
 import { Session } from "./session";
+import { Store } from "./store";
 import { log } from "./log";
 
 const PORT = Number(process.env.TUTOR_PORT ?? 8787);
+const store = new Store();
+
+const CORS = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, DELETE, OPTIONS", "access-control-allow-headers": "content-type" };
+const json = (res: import("node:http").ServerResponse, status: number, body: unknown) => {
+  res.writeHead(status, { "content-type": "application/json", ...CORS });
+  res.end(JSON.stringify(body));
+};
 
 const http = createServer((req, res) => {
-  if (req.url === "/health") {
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: true, brain: process.env.BRAIN ?? "claude-code", images: process.env.IMAGES ?? (process.env.GEMINI_API_KEY ? "gemini" : "none") }));
+  const url = new URL(req.url ?? "/", "http://localhost");
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, CORS);
+    res.end();
     return;
+  }
+  if (url.pathname === "/health") {
+    return json(res, 200, { ok: true, brain: process.env.BRAIN ?? "claude-code", images: process.env.IMAGES ?? (process.env.GEMINI_API_KEY ? "gemini" : "none") });
+  }
+  if (url.pathname === "/boards" && req.method === "GET") return json(res, 200, store.listBoards());
+  const boardMatch = /^\/boards\/([\w-]+)$/.exec(url.pathname);
+  if (boardMatch) {
+    const id = boardMatch[1];
+    if (req.method === "GET") {
+      const board = store.getBoard(id);
+      return board ? json(res, 200, { board: { id: board.id, title: board.title, topic: board.topic, model: board.model, createdAt: board.createdAt, updatedAt: board.updatedAt }, log: store.log(id) }) : json(res, 404, { error: "not found" });
+    }
+    if (req.method === "DELETE") {
+      store.deleteBoard(id);
+      return json(res, 200, { ok: true });
+    }
   }
   if (req.url?.startsWith("/images/")) {
     const file = imageStore.read(decodeURIComponent(req.url.slice("/images/".length)));
@@ -49,7 +74,16 @@ wss.on("connection", (ws: WebSocket) => {
         case "start": {
           session?.close();
           const images = createImages();
-          session = new Session(createBrain({ model: msg.model }), images, send);
+          if (msg.resume) {
+            const row = store.getBoard(msg.resume);
+            if (!row) return send({ type: "error", message: "that board no longer exists" });
+            session = new Session(createBrain({ model: row.model, session: row.brainSessionId }), images, store, send, row.id);
+            log.info("resume", row.id, row.title);
+            await session.resume();
+            break;
+          }
+          if (!msg.topic.trim()) return send({ type: "error", message: "tell me what you want to learn" });
+          session = new Session(createBrain({ model: msg.model }), images, store, send);
           log.info("session", session.id, "topic:", msg.topic.slice(0, 80));
           await session.start(msg.topic, msg.materials);
           break;
