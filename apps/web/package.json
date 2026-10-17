@@ -19,6 +19,7 @@
     "dompurify": "^3.4.0",
     "katex": "^0.16.27",
     "next": "16.4.2",
+    "pdfjs-dist": "^6.4.299",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "roughjs": "^4.6.6",

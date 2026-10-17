@@ -4,11 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { BoardSummarySchema, type BoardSummary } from "@openstudy/shared";
 import { TUTOR_HTTP } from "@/board/useLiveSession";
-
-interface Material {
-  name: string;
-  text: string;
-}
+import { readMaterial, type Material } from "@/lib/materials";
 
 const MODELS = [
   { id: "sonnet", label: "Sonnet (fast)" },
@@ -38,16 +34,21 @@ export default function Home() {
     loadBoards();
   };
 
+  const [reading, setReading] = useState(0);
   const addFiles = async (files: FileList | null) => {
     if (!files) return;
-    const next: Material[] = [];
-    const skip: string[] = [];
+    setReading((n) => n + files.length);
     for (const f of Array.from(files)) {
-      if (/\.(txt|md|markdown|csv|json)$/i.test(f.name) || f.type.startsWith("text/")) next.push({ name: f.name, text: await f.text() });
-      else skip.push(f.name);
+      try {
+        const r = await readMaterial(f);
+        if (r.material) setMaterials((m) => [...m, r.material!]);
+        if (r.skipped) setSkipped((s) => [...s, r.skipped!]);
+      } catch {
+        setSkipped((s) => [...s, `${f.name} (could not read)`]);
+      } finally {
+        setReading((n) => n - 1);
+      }
     }
-    setMaterials((m) => [...m, ...next]);
-    setSkipped((s) => [...s, ...skip]);
   };
 
   const start = () => {
@@ -95,12 +96,13 @@ export default function Home() {
               ))}
             </ul>
           )}
-          {skipped.length > 0 && <p className="px-2 pb-2 text-[12px] text-neutral-500">Skipped (PDF and image reading comes in a later phase): {skipped.join(", ")}</p>}
+          {reading > 0 && <p className="px-2 pb-2 text-[12px] text-neutral-500">Reading {reading} file{reading > 1 ? "s" : ""}...</p>}
+          {skipped.length > 0 && <p className="px-2 pb-2 text-[12px] text-neutral-500">Skipped (images and scanned PDFs are not read yet): {skipped.join(", ")}</p>}
           <div className="flex items-center justify-between gap-2 border-t border-neutral-100 pt-2">
             <div className="flex items-center gap-1">
               <label className="ui-btn cursor-pointer" title="Attach notes or text files">
                 + Add files
-                <input type="file" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} accept=".txt,.md,.markdown,.csv,.json,text/*" />
+                <input type="file" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} accept=".pdf,.txt,.md,.markdown,.csv,.json,.py,.js,.ts,.html,application/pdf,text/*" />
               </label>
               <select className="ui-btn bg-transparent" value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model">
                 {MODELS.map((m) => (
@@ -110,7 +112,7 @@ export default function Home() {
                 ))}
               </select>
             </div>
-            <button className="ui-btn primary px-4" onClick={start} disabled={!topic.trim() && materials.length === 0}>
+            <button className="ui-btn primary px-4" onClick={start} disabled={reading > 0 || (!topic.trim() && materials.length === 0)}>
               Start lesson ↵
             </button>
           </div>

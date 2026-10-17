@@ -10,7 +10,8 @@ export default defineConfig({
     launchOptions: process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : undefined,
   },
   webServer: {
-    command: "pnpm exec next dev -p 3100",
+    // Point the app at a dead tutor port so tests never start real lessons.
+    command: "NEXT_PUBLIC_TUTOR_WS=ws://127.0.0.1:9/ws NEXT_PUBLIC_TUTOR_HTTP=http://127.0.0.1:9 pnpm exec next dev -p 3100",
     url: "http://127.0.0.1:3100",
     reuseExistingServer: true,
     timeout: 120_000,

@@ -38,3 +38,19 @@ test("home page intake routes to a live lesson", async ({ page }) => {
   await expect(page).toHaveURL(/\/live\?topic=/);
   await expect(page.getByText("Chat history")).toBeVisible();
 });
+
+test("attaching a PDF extracts its text on the home page", async ({ page, browser }) => {
+  // Make a small PDF with Chromium itself, then attach it.
+  const maker = await browser.newPage();
+  await maker.setContent("<h1>Photosynthesis notes</h1><p>Light reactions happen in the thylakoid membrane.</p>");
+  const pdf = await maker.pdf({ format: "A4" });
+  await maker.close();
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name: "notes.pdf", mimeType: "application/pdf", buffer: pdf });
+  await expect(page.getByText("notes.pdf")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("button", { name: "Start lesson" })).toBeEnabled();
+  await page.getByRole("button", { name: "Start lesson" }).click();
+  await expect(page).toHaveURL(/\/live\?topic=/);
+  const stored = await page.evaluate(() => sessionStorage.getItem("openstudy.materials") ?? "");
+  expect(stored).toContain("thylakoid membrane");
+});

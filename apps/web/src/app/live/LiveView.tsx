@@ -80,6 +80,7 @@ export function LiveView() {
       onSay={say}
       onInterrupt={interrupt}
       caption={voice.caption}
+      boardId={live.info?.id ?? null}
       extraControls={
         <>
           <div className="ui-card relative flex items-center gap-0.5 p-1">

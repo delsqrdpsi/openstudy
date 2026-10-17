@@ -22,7 +22,9 @@ The plan and the reasoning behind it are in [PLAN.md](PLAN.md).
       over it stops it. No keys.
 - [x] Phase 5: every lesson is saved (SQLite, no native deps); reopen a board
       from the home page and keep talking to the same tutor session
-- [ ] Phase 6: polish, PDF and image reading for materials
+- [x] Phase 6 (part): PDFs and text files you attach are read in the browser;
+      any board can be printed or saved as PDF
+- [ ] Next: image and scanned-PDF reading, hosted voices, source pages on the board
 
 ## Run it
 

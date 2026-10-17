@@ -19,6 +19,8 @@ interface Props {
   extraControls?: React.ReactNode;
   /** Spoken caption with word progress; falls back to the last tutor line. */
   caption?: { text: string; wordIndex: number } | null;
+  /** Saved board id, enables the export button. */
+  boardId?: string | null;
 }
 
 /**
@@ -26,7 +28,7 @@ interface Props {
  * keypoints bottom-right of the board, question options and the input bar
  * along the bottom. Shared by live lessons and fixture playback.
  */
-export function LessonShell({ title, state, turn, transcript, writingId, statusNote, onSay, onInterrupt, extraControls, caption }: Props) {
+export function LessonShell({ title, state, turn, transcript, writingId, statusNote, onSay, onInterrupt, extraControls, caption, boardId }: Props) {
   const board = useRef<BoardHandle>(null);
   const [scale, setScale] = useState(1);
   const [follow, setFollow] = useState(true);
@@ -70,6 +72,11 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
             <button className="ui-btn" onClick={() => board.current?.zoomTo(scale * 1.2)} aria-label="Zoom in">+</button>
             <span className="mx-1 h-5 w-px bg-neutral-200" />
             <button className="ui-btn" onClick={() => board.current?.fitAll()} aria-label="Fit board" title="Fit the whole board">⤢</button>
+            {boardId && (
+              <a className="ui-btn" href={`/print/${boardId}`} target="_blank" rel="noreferrer" aria-label="Export board" title="Print or save the board as PDF">
+                ⤓
+              </a>
+            )}
             <button className={`ui-btn${follow ? " is-on" : ""}`} onClick={() => setFollow((f) => !f)} title="Camera follows the tutor">
               Follow
             </button>
