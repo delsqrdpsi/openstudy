@@ -56,9 +56,11 @@ export function startBuild(opts: { name: string; concept: string; onDone?: (job:
       log.warn("figure build failed", job.id, job.error);
     } else {
       try {
-        job.figure = importFigure(readFileSync(page, "utf8"), {
+        const html = readFileSync(page, "utf8");
+        const pageTitle = /<title>([^<]{2,80})<\/title>/.exec(html)?.[1]?.trim();
+        job.figure = importFigure(html, {
           name,
-          title: opts.concept.slice(0, 60),
+          title: pageTitle && !pageTitle.includes("${") ? pageTitle : opts.concept.slice(0, 60),
           description: opts.concept,
           tags: ["built"],
           source: "Built with the Anatomy skill",
