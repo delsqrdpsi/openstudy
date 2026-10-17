@@ -137,7 +137,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ state, writ
               key={block.id}
               ref={attach}
               data-item-id={block.id}
-              className="wb-item wb-enter"
+              className="wb-item wb-item-enter"
               style={{ transform: `translate(${p.x}px, ${p.y}px)`, width: block.type === "html" ? p.width : undefined }}
             >
               <div style={{ position: "relative" }}>

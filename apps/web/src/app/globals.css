@@ -185,7 +185,16 @@ body {
   }
 }
 
-/* Fade-in for new items */
+/* Fade-in for new items. Items only animate opacity: an animated transform
+   would override the inline translate that positions them. */
+.wb-item-enter {
+  animation: wb-fade-in 260ms ease-out;
+}
+@keyframes wb-fade-in {
+  from {
+    opacity: 0;
+  }
+}
 .wb-enter {
   animation: wb-enter 260ms ease-out;
 }
