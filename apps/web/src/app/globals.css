@@ -222,25 +222,34 @@ body {
   }
 }
 
-/* Annotation draw-on */
-.wb-anno-stroke {
-  stroke-dasharray: var(--len);
-  stroke-dashoffset: var(--len);
-  animation: wb-draw 700ms ease-out forwards;
-}
-@keyframes wb-draw {
-  to {
-    stroke-dashoffset: 0;
-  }
-}
+/* Annotations. The draw-on (dash offset, clip sweep) is set per frame by the
+   board's stroke animator, which also moves the pencil along them. */
 .wb-anno-fill {
-  opacity: 0;
-  animation: wb-fade 500ms ease-out forwards;
+  opacity: 0.75;
 }
-@keyframes wb-fade {
-  to {
-    opacity: 0.75;
-  }
+
+/* The pencil. Its tip is the element's origin; the board places it in world
+   coordinates, so it moves and scales with the paper. */
+.wb-pen {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 5;
+  transform-origin: 0 0;
+  transition: transform 90ms linear, opacity 220ms ease-out;
+  filter: drop-shadow(1px 2px 1.5px rgba(31, 42, 55, 0.28));
+}
+.wb-pen svg {
+  position: absolute;
+  left: -4px;
+  top: -44px;
+  overflow: visible;
+}
+.wb-pen.is-idle {
+  opacity: 0;
 }
 
 .wb-item-enter {

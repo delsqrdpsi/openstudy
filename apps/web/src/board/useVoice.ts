@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { estimateSpeechMs } from "./pacer";
 
 /**
  * Voice in the browser, no keys and no server: speech synthesis for the
@@ -52,8 +53,9 @@ export function useVoice(opts: VoiceOptions) {
   const [caption, setCaption] = useState<Caption | null>(null);
   const [rate, setRate] = useState(1.05);
 
-  const queue = useRef<string[]>([]);
+  const queue = useRef<{ text: string; onEnd?: () => void }[]>([]);
   const current = useRef<SpeechSynthesisUtterance | null>(null);
+  const currentEnd = useRef<(() => void) | null>(null);
   const mutedRef = useRef(muted);
   const rateRef = useRef(rate);
   const speakingRef = useRef(false);
@@ -66,17 +68,32 @@ export function useVoice(opts: VoiceOptions) {
     const id = window.setTimeout(() => setSupported({ tts: "speechSynthesis" in window, stt: !!getRecognitionCtor() }), 0);
     return () => window.clearTimeout(id);
   }, []);
-  const setMutedOn = useCallback((on: boolean) => {
-    mutedRef.current = on;
-    setMuted(on);
-    if (on) {
-      queue.current = [];
-      window.speechSynthesis?.cancel();
-      speakingRef.current = false;
-      setSpeaking(false);
-      setCaption(null);
-    }
+  /** Stop the tutor's voice now and drop anything queued. */
+  const stop = useCallback(() => {
+    const dropped = queue.current;
+    queue.current = [];
+    const end = currentEnd.current;
+    currentEnd.current = null;
+    current.current = null;
+    speakingRef.current = false;
+    window.speechSynthesis?.cancel();
+    setSpeaking(false);
+    // Whoever was waiting on these lines must not wait forever.
+    end?.();
+    for (const d of dropped) d.onEnd?.();
   }, []);
+
+  const setMutedOn = useCallback(
+    (on: boolean) => {
+      mutedRef.current = on;
+      setMuted(on);
+      if (on) {
+        stop();
+        setCaption(null);
+      }
+    },
+    [stop],
+  );
   useEffect(() => {
     rateRef.current = rate;
   }, [rate]);
@@ -94,11 +111,12 @@ export function useVoice(opts: VoiceOptions) {
 
   const playNext = useCallback(() => {
     if (speakingRef.current || mutedRef.current) return;
-    const text = queue.current.shift();
-    if (!text) {
+    const item = queue.current.shift();
+    if (!item) {
       setSpeaking(false);
       return;
     }
+    const text = item.text;
     const u = new SpeechSynthesisUtterance(text);
     u.rate = rateRef.current;
     u.pitch = 1;
@@ -123,13 +141,16 @@ export function useVoice(opts: VoiceOptions) {
     const done = () => {
       if (current.current !== u) return;
       current.current = null;
+      currentEnd.current = null;
       speakingRef.current = false;
       setCaption((c) => (c && c.text === text ? { text, wordIndex: words.length } : c));
+      item.onEnd?.();
       playNextRef.current();
     };
     u.onend = done;
     u.onerror = done;
     current.current = u;
+    currentEnd.current = item.onEnd ?? null;
     speakingRef.current = true;
     setSpeaking(true);
     window.speechSynthesis.speak(u);
@@ -138,24 +159,23 @@ export function useVoice(opts: VoiceOptions) {
     playNextRef.current = playNext;
   }, [playNext]);
 
-  /** Queue a line of narration. */
+  /**
+   * Queue a line of narration. `onEnd` fires when it has been spoken (or cut
+   * off). Returns false when nothing will be said (no synthesiser, or muted),
+   * so the caller can keep time on its own.
+   */
   const speak = useCallback(
-    (text: string) => {
-      if (!supported.tts || mutedRef.current) return;
-      queue.current.push(text);
+    (text: string, onEnd?: () => void): boolean => {
+      if (!supported.tts || mutedRef.current) return false;
+      queue.current.push({ text, onEnd });
       playNext();
+      return true;
     },
     [supported.tts, playNext],
   );
 
-  /** Stop the tutor's voice now and drop anything queued. */
-  const stop = useCallback(() => {
-    queue.current = [];
-    current.current = null;
-    speakingRef.current = false;
-    window.speechSynthesis?.cancel();
-    setSpeaking(false);
-  }, []);
+  /** How long a line takes to say at the current speed. */
+  const estimate = useCallback((text: string) => estimateSpeechMs(text, rateRef.current), []);
 
   // Speech recognition with auto-restart while listening is on.
   const startRec = useCallback(() => {
@@ -230,5 +250,5 @@ export function useVoice(opts: VoiceOptions) {
     [],
   );
 
-  return { supported, muted, setMuted: setMutedOn, listening, setListening: setListeningOn, speaking, caption, rate, setRate, speak, stop };
+  return { supported, muted, setMuted: setMutedOn, listening, setListening: setListeningOn, speaking, caption, rate, setRate, speak, estimate, stop };
 }

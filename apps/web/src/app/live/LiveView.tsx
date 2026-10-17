@@ -1,7 +1,7 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useLiveSession } from "@/board/useLiveSession";
+import { useLiveSession, type Speaker } from "@/board/useLiveSession";
 import { useVoice } from "@/board/useVoice";
 import { LessonShell } from "@/board/LessonShell";
 
@@ -13,9 +13,9 @@ export function LiveView() {
     onUserSpeech: (text) => liveRef.current?.say(text),
     onBargeIn: () => liveRef.current?.interrupt(),
   });
-  const speak = voice.speak;
-  const onSay = useCallback((text: string) => speak(text), [speak]);
-  const live = useLiveSession({ onSay });
+  const { speak, estimate } = voice;
+  const speaker = useMemo<Speaker>(() => ({ speak, estimateMs: estimate }), [speak, estimate]);
+  const live = useLiveSession({ speaker });
   useEffect(() => {
     liveRef.current = live;
   }, [live]);

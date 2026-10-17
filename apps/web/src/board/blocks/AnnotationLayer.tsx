@@ -56,7 +56,7 @@ export function AnnotationLayer({ annotations, targetEl, scale, version }: Props
     >
       {drawn.map((d) =>
         d.kind === "highlight" ? (
-          <g key={d.id} className="wb-anno-fill" style={{ mixBlendMode: "multiply" }}>
+          <g key={d.id} className="wb-anno-fill" data-anno-id={d.id} data-sweep="" style={{ mixBlendMode: "multiply" }}>
             {d.paths.map((p, i) => (
               <path key={i} d={p} fill={d.color} />
             ))}
@@ -65,15 +65,15 @@ export function AnnotationLayer({ annotations, targetEl, scale, version }: Props
           <path
             key={d.id}
             className="wb-anno-stroke"
+            data-anno-id={d.id}
             d={d.d}
             fill="none"
             stroke={d.color}
             strokeWidth={3}
             strokeLinecap="round"
-            style={{ ["--len" as string]: `${d.length}` }}
           />
         ) : (
-          <g key={d.id}>
+          <g key={d.id} data-anno-id={d.id}>
             {d.paths.map((p, i) => (
               <path
                 key={i}
@@ -83,7 +83,6 @@ export function AnnotationLayer({ annotations, targetEl, scale, version }: Props
                 stroke={d.color}
                 strokeWidth={2.5}
                 strokeLinecap="round"
-                style={{ ["--len" as string]: `${p.length}` }}
               />
             ))}
           </g>
