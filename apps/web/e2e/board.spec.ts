@@ -25,5 +25,16 @@ test("playback streams text and the caret shows", async ({ page }) => {
   await expect(page.locator('[data-item-id="big_picture"] .wb-html')).toBeVisible({ timeout: 15000 });
   await page.waitForTimeout(1500);
   await page.screenshot({ path: "test-results/board-playing.png" });
-  await expect(page.locator('[data-item-id="loop_sketch"] .wb-dotcloud')).toBeVisible();
+  await expect(page.locator('[data-item-id="loop_sketch"] .wb-sketching')).toBeVisible();
+  // Chat history shows narration and board actions.
+  await expect(page.getByText("Chat history")).toBeVisible();
+  await expect(page.getByText("Board note").first()).toBeVisible();
+});
+
+test("home page intake routes to a live lesson", async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("What do you want to learn").fill("How do transformers work?");
+  await page.getByRole("button", { name: "Start lesson" }).click();
+  await expect(page).toHaveURL(/\/live\?topic=/);
+  await expect(page.getByText("Chat history")).toBeVisible();
 });

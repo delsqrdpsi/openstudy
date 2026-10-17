@@ -71,7 +71,7 @@ export type ContentBlock = Exclude<Block, AnnotationBlock>;
 export const isContentBlock = (b: Block): b is ContentBlock => b.type !== "annotation";
 
 export const ANNOTATION_COLORS: Record<z.infer<typeof AnnotationKindSchema>, string> = {
-  highlight: "#FFC800",
-  circle: "#06B2FC",
-  underline: "#F653A2",
+  highlight: "#9fe3c3",
+  circle: "#e4572e",
+  underline: "#0f9d8a",
 };

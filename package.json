@@ -3,7 +3,9 @@
   "private": true,
   "packageManager": "pnpm@10.28.0",
   "scripts": {
-    "dev": "pnpm --filter @openstudy/web dev",
+    "dev": "pnpm -r --parallel --filter @openstudy/web --filter @openstudy/tutor dev",
+    "dev:web": "pnpm --filter @openstudy/web dev",
+    "dev:tutor": "pnpm --filter @openstudy/tutor dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",

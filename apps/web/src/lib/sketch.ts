@@ -139,7 +139,7 @@ function cleanText(el: Element): Element {
     if (a.name === "font-family") continue;
     t.setAttribute(a.name, a.value);
   }
-  t.setAttribute("font-family", "var(--wb-font-family)");
+  t.setAttribute("font-family", "var(--wb-font-head)");
   t.textContent = el.textContent;
   return t;
 }

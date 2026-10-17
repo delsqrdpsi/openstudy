@@ -1,19 +1,30 @@
 @import "tailwindcss";
-@import "@fontsource/caveat/400.css";
-@import "@fontsource/caveat/700.css";
-@import "@fontsource/kalam/400.css";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/patrick-hand/400.css";
+@import "@fontsource/architects-daughter/400.css";
 @import "katex/dist/katex.min.css";
 
+/* OpenStudy look: graph paper, navy ink, coral and teal pens, two handwriting
+   faces (a neat one for body text, a looser one for headings). */
 :root {
-  --background: #fdfcf7;
-  --foreground: #222222;
-  --wb-font-family: "Caveat", "Kalam", "Noto Sans", cursive;
-  --wb-font-size: 26px;
-  --wb-line-height: 1.25;
-  --wb-ink: #222222;
-  --wb-accent: #06b2fc;
-  --wb-highlight: #ffc800;
-  --wb-pink: #f653a2;
+  --paper: #f6f7f4;
+  --paper-line: rgba(31, 42, 55, 0.07);
+  --ink: #1f2a37;
+  --ink-soft: #4b5563;
+  --ink-faint: #8a94a3;
+  --coral: #e4572e;
+  --teal: #0f9d8a;
+  --mint: #9fe3c3;
+  --violet: #6d5dfc;
+  --panel: #ffffff;
+  --panel-border: rgba(31, 42, 55, 0.1);
+  --wb-font-body: "Patrick Hand", "Segoe Print", "Comic Sans MS", cursive;
+  --wb-font-head: "Architects Daughter", "Patrick Hand", cursive;
+  --wb-font-ui: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --wb-font-size: 25px;
+  --wb-line-height: 1.28;
 }
 
 html,
@@ -23,16 +34,18 @@ body {
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--wb-font-ui);
 }
 
-/* Paper texture: a faint dot grid that pans and zooms with nothing; it stays fixed like real paper under glass. */
+/* Graph paper: fine lines every 32px, a heavier one every 160px. */
 .wb-paper {
-  background-color: var(--background);
-  background-image: radial-gradient(rgba(0, 0, 0, 0.06) 1px, transparent 1px);
-  background-size: 28px 28px;
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--paper-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
+  background-size: 32px 32px;
 }
 
 .wb-viewport {
@@ -63,48 +76,59 @@ body {
 
 /* Handwritten text blocks */
 .wb-html {
-  font-family: var(--wb-font-family);
+  font-family: var(--wb-font-body);
   font-size: var(--wb-font-size);
   line-height: var(--wb-line-height);
-  color: var(--wb-ink);
+  color: var(--ink);
   user-select: text;
   overflow-wrap: anywhere;
 }
+.wb-html h1,
+.wb-html h2,
+.wb-html h3 {
+  font-family: var(--wb-font-head);
+  line-height: 1.2;
+  margin: 0 0 0.2em;
+  color: var(--ink);
+}
 .wb-html h1 {
-  font-size: 1.55em;
-  font-weight: 700;
-  line-height: 1.15;
-  margin: 0 0 0.15em;
+  font-size: 1.5em;
+  text-decoration: underline;
+  text-decoration-color: var(--coral);
+  text-decoration-thickness: 3px;
+  text-underline-offset: 6px;
 }
 .wb-html h2 {
-  font-size: 1.3em;
-  font-weight: 700;
-  margin: 0 0 0.1em;
+  font-size: 1.25em;
 }
 .wb-html h3 {
-  font-size: 1.12em;
-  font-weight: 700;
-  margin: 0;
+  font-size: 1.05em;
 }
 .wb-html b,
 .wb-html strong {
-  font-weight: 700;
+  font-weight: 400;
+  color: var(--coral);
+}
+.wb-html i,
+.wb-html em {
+  color: var(--ink-soft);
 }
 .wb-html table {
   border-collapse: collapse;
   width: 100%;
-  margin: 0.1em 0;
+  margin: 0.15em 0;
 }
 .wb-html th,
 .wb-html td {
-  border: 1.5px solid #3a3a3a;
+  border: 1.5px solid var(--ink);
   padding: 2px 10px;
   text-align: left;
   vertical-align: top;
 }
 .wb-html th {
-  font-weight: 700;
-  background: rgba(0, 0, 0, 0.035);
+  font-family: var(--wb-font-head);
+  font-size: 0.85em;
+  background: rgba(15, 157, 138, 0.08);
 }
 .wb-html .katex {
   font-size: 0.95em;
@@ -114,15 +138,15 @@ body {
   padding-left: 1.2em;
 }
 
-/* The caret that follows handwriting while a block streams in */
+/* Pen caret while a block streams */
 .wb-html.is-writing::after {
   content: "";
   display: inline-block;
-  width: 0.08em;
-  height: 0.9em;
+  width: 0.09em;
+  height: 0.85em;
   margin-left: 2px;
   vertical-align: -0.1em;
-  background: var(--wb-ink);
+  background: var(--coral);
   animation: wb-blink 0.9s steps(2, start) infinite;
 }
 @keyframes wb-blink {
@@ -132,36 +156,64 @@ body {
 }
 
 .wb-caption {
-  font-family: var(--wb-font-family);
-  font-size: 20px;
-  color: #555;
+  font-family: var(--wb-font-head);
+  font-size: 17px;
+  color: var(--ink-soft);
   margin-top: 6px;
 }
 
-/* Image placeholder: a soft cloud of pastel dots that drifts */
-.wb-dotcloud {
-  position: relative;
+/* Image placeholder: a pencil hatching the frame, loop */
+.wb-sketching {
   width: 100%;
   height: 100%;
+  border: 2px dashed rgba(31, 42, 55, 0.25);
+  border-radius: 10px;
+  position: relative;
   overflow: hidden;
 }
-.wb-dotcloud span {
+.wb-sketching svg {
   position: absolute;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  opacity: 0.55;
-  animation: wb-drift 3.2s ease-in-out infinite alternate;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
-@keyframes wb-drift {
-  from {
-    transform: translate(0, 0) scale(0.9);
-    opacity: 0.25;
+.wb-sketching .hatch {
+  stroke: var(--ink);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  opacity: 0.35;
+  stroke-dasharray: 600;
+  stroke-dashoffset: 600;
+  animation: wb-hatch 2.6s ease-in-out infinite;
+}
+@keyframes wb-hatch {
+  0% {
+    stroke-dashoffset: 600;
+    opacity: 0;
   }
-  to {
-    transform: translate(var(--dx, 4px), var(--dy, -6px)) scale(1.1);
-    opacity: 0.7;
+  15% {
+    opacity: 0.35;
   }
+  60% {
+    stroke-dashoffset: 0;
+    opacity: 0.35;
+  }
+  85% {
+    opacity: 0;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+.wb-sketching .label {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  font-family: var(--wb-font-head);
+  font-size: 18px;
+  color: var(--ink-faint);
 }
 
 /* Annotation draw-on */
@@ -181,12 +233,10 @@ body {
 }
 @keyframes wb-fade {
   to {
-    opacity: 0.28;
+    opacity: 0.55;
   }
 }
 
-/* Fade-in for new items. Items only animate opacity: an animated transform
-   would override the inline translate that positions them. */
 .wb-item-enter {
   animation: wb-fade-in 260ms ease-out;
 }
@@ -202,5 +252,87 @@ body {
   from {
     opacity: 0;
     transform: translateY(4px);
+  }
+}
+
+/* UI pieces */
+.ui-card {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(31, 42, 55, 0.04), 0 8px 24px rgba(31, 42, 55, 0.06);
+}
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  min-width: 34px;
+  padding: 0 10px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  transition: background 120ms;
+}
+.ui-btn:hover {
+  background: rgba(31, 42, 55, 0.06);
+}
+.ui-btn.is-on {
+  background: rgba(15, 157, 138, 0.12);
+  color: var(--teal);
+}
+.ui-btn.primary {
+  background: var(--ink);
+  color: #fff;
+}
+.ui-btn.primary:hover {
+  background: #2b3a4c;
+}
+.ui-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px 10px 10px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  font-size: 15px;
+  color: var(--ink);
+  box-shadow: 0 4px 16px rgba(31, 42, 55, 0.06);
+  transition: transform 120ms, border-color 120ms;
+}
+.ui-chip:hover {
+  transform: translateY(-1px);
+  border-color: var(--coral);
+}
+.ui-chip .letter {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(228, 87, 46, 0.12);
+  color: var(--coral);
+  font-weight: 600;
+  font-size: 12px;
+}
+.ui-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--teal);
+  animation: ui-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ui-pulse {
+  0%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
   }
 }
