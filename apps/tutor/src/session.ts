@@ -15,6 +15,8 @@ import type { Store } from "./store";
 import { LessonPlanSchema } from "@openstudy/shared";
 import { intakeMessage, tutorSystemPrompt } from "./prompts";
 import { planLesson, planForTutor } from "./planner";
+import { figuresForPrompt, getFigure, listFigures } from "./figures";
+import { startBuild } from "./figures/builder";
 import { log } from "./log";
 
 /** How long the first teaching turn waits for the planner before going without it. */
@@ -42,6 +44,8 @@ export class Session {
   /** Set when reopening a saved board: what was said so far, in case the brain's own session is gone. */
   private resumeTranscript: string | null = null;
   private recovered = false;
+  private buildsRequested = 0;
+  private figureBase = process.env.TUTOR_PUBLIC_URL ?? `http://localhost:${process.env.TUTOR_PORT ?? 8787}`;
 
   constructor(
     private readonly brain: Brain,
@@ -58,7 +62,7 @@ export class Session {
     this.store.createBoard({ id: this.id, title: titleFrom(topic), topic, brain: this.brain.name, model: this.brain.model });
     this.send({ type: "session", id: this.id, brain: this.brain.name, model: this.brain.model, title: titleFrom(topic) });
     // Plan while the intake conversation happens; usually ready before the student answers.
-    this.plan = planLesson({ topic, materials, imagesEnabled: !!this.images })
+    this.plan = planLesson({ topic, materials, imagesEnabled: !!this.images, figures: figuresForPrompt(listFigures()) })
       .then((plan) => {
         this.pregenerate(plan);
         this.store.setPlan(this.id, JSON.stringify(plan));
@@ -185,6 +189,49 @@ export class Session {
     }
   }
 
+  private placeFigure(s: { id: string; column: number; name: string; caption?: string }) {
+    const fig = getFigure(s.name);
+    if (!fig) {
+      this.send({ type: "debug", text: `no figure named ${s.name}` });
+      return;
+    }
+    this.emit({
+      type: "block.add",
+      block: { id: s.id, type: "embed", column: s.column, src: `${this.figureBase}/figures/${fig.name}/`, title: fig.title, caption: s.caption, height: fig.height },
+    });
+  }
+
+  private requestFigure(name: string, concept: string) {
+    if (this.buildsRequested >= 1) return;
+    this.buildsRequested += 1;
+    const column = Math.max(0, ...this.board.blocks.map((b) => ("column" in b ? b.column : 0)));
+    const noteId = `building_${name.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`;
+    this.emit({ type: "block.add", block: { id: noteId, type: "html", column, html: `<i>Building an interactive model: ${escapeHtml(concept)}. It will appear here when it is ready, usually in under an hour.</i>` } });
+    const boardId = this.id;
+    const store = this.store;
+    startBuild({
+      name,
+      concept,
+      onDone: (job) => {
+        if (job.status === "done" && job.figure) {
+          const block = { id: `model_${job.figure.name.replace(/-/g, "_")}`, type: "embed" as const, column, src: `${this.figureBase}/figures/${job.figure.name}/`, title: job.figure.title, caption: concept, height: job.figure.height };
+          const add: LessonEvent = { type: "block.add", block };
+          const remove: LessonEvent = { type: "block.remove", id: noteId };
+          // The lesson may be over by now: always save, and send if still connected.
+          store.appendEvent(boardId, remove);
+          store.appendEvent(boardId, add);
+          this.board = applyEvent(applyEvent(this.board, remove), add);
+          this.send({ type: "event", event: remove });
+          this.send({ type: "event", event: add });
+        } else {
+          const fail: LessonEvent = { type: "block.add", block: { id: noteId, type: "html", column, html: `<i>The model build did not finish: ${escapeHtml(job.error ?? "unknown error")}</i>` } };
+          store.appendEvent(boardId, fail);
+          this.send({ type: "event", event: fail });
+        }
+      },
+    });
+  }
+
   private update(e: LessonEvent) {
     this.board = applyEvent(this.board, e);
     this.store.appendEvent(this.id, e);
@@ -206,12 +253,14 @@ export class Session {
           ended = "ask";
           options = s.options;
         } else if (s.type === "done") ended = "done";
+        else if (s.type === "figure") this.placeFigure(s);
+        else if (s.type === "build_figure") this.requestFigure(s.name, s.concept);
         else this.send({ type: "debug", text: `protocol: ${s.message} in "${s.line}"` });
       },
     });
 
     const result = await this.brain.turn({
-      system: tutorSystemPrompt({ imagesEnabled: !!this.images }),
+      system: tutorSystemPrompt({ imagesEnabled: !!this.images, figures: figuresForPrompt(listFigures()) }),
       userText,
       signal,
       onText: (t) => parser.feed(t),
@@ -254,6 +303,10 @@ export class Session {
     }
     this.setState(ended === "done" ? "done" : "waiting", options);
   }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 }
 
 function titleFrom(topic: string): string {

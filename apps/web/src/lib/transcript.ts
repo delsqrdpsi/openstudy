@@ -20,8 +20,9 @@ export function entryFromEvent(e: LessonEvent): TranscriptEntry | null {
     case "block.add": {
       const b = e.block;
       if (b.type === "html") return { kind: "action", label: "Board note", blockId: b.id };
-      if (b.type === "svg") return { kind: "action", label: "Diagram", detail: b.caption, blockId: b.id };
+      if (b.type === "svg") return { kind: "action", label: b.motion ? "Animation" : "Diagram", detail: b.caption, blockId: b.id };
       if (b.type === "image") return { kind: "action", label: "Sketch", detail: b.prompt, blockId: b.id };
+      if (b.type === "embed") return { kind: "action", label: "Model", detail: b.title ?? b.caption, blockId: b.id };
       const verb = b.kind === "highlight" ? "Highlight" : b.kind === "circle" ? "Circle" : "Underline";
       return { kind: "action", label: verb, detail: b.match, blockId: b.target };
     }

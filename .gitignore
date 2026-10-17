@@ -10,3 +10,10 @@ data/
 .DS_Store
 test-results/
 playwright-report/
+# large seeded figures stay local; the two small ones are committed
+figures/arcade-cabinet/
+figures/raptor-engine/
+figures/ripple-tank/
+figures/spot-plate/
+figures/test-rig/
+figures/turning-dial/

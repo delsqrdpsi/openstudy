@@ -16,6 +16,11 @@ import { BlockSchema } from "./blocks";
  *   <svg viewBox="0 0 300 200">...</svg>
  *   @end
  *   @image id=<id> col=<n> prompt="..." caption="..."
+ *   @motion id=<id> col=<n> caption="..."
+ *   <svg viewBox="0 0 300 200">...animated with <animate> or CSS...</svg>
+ *   @end
+ *   @figure id=<id> col=<n> name="<figure from the library>" caption="..."
+ *   @build_figure name="<slug>" concept="what the model should show"
  *   @annotate id=<id> target=<id> kind=circle match="word or phrase"
  *   @focus id=<id>
  *   @remove id=<id>
@@ -25,14 +30,24 @@ import { BlockSchema } from "./blocks";
  */
 
 /** `ask` may carry quick-check options the student can click instead of typing. */
-export type ProtocolSignal = { type: "ask"; options?: string[] } | { type: "done" } | { type: "error"; message: string; line: string };
+export type ProtocolSignal =
+  | { type: "ask"; options?: string[] }
+  | { type: "done" }
+  | { type: "error"; message: string; line: string }
+  /** The tutor wants a library figure on the board; the server resolves name to src. */
+  | { type: "figure"; id: string; column: number; name: string; caption?: string }
+  /** The tutor asks for a new interactive model to be built in the background. */
+  | { type: "build_figure"; name: string; concept: string };
 
 export interface ProtocolSink {
   event(e: LessonEvent): void;
   signal(s: ProtocolSignal): void;
 }
 
-type Mode = { kind: "idle" } | { kind: "html"; id: string } | { kind: "svg"; id: string; column: number; caption?: string; buf: string };
+type Mode =
+  | { kind: "idle" }
+  | { kind: "html"; id: string }
+  | { kind: "svg"; id: string; column: number; caption?: string; buf: string; motion: boolean };
 
 export class ProtocolParser {
   private buf = "";
@@ -127,10 +142,30 @@ export class ProtocolParser {
         this.mode = { kind: "html", id };
         return;
       }
-      case "svg": {
+      case "svg":
+      case "motion": {
         this.closeOpen();
         const id = this.uniqueId(attrs.id);
-        this.mode = { kind: "svg", id, column: num(attrs.col), caption: attrs.caption, buf: "" };
+        this.mode = { kind: "svg", id, column: num(attrs.col), caption: attrs.caption, buf: "", motion: name === "motion" };
+        return;
+      }
+      case "figure": {
+        this.closeOpen();
+        if (!attrs.name) {
+          this.sink.signal({ type: "error", message: "figure needs name", line });
+          return;
+        }
+        const id = this.uniqueId(attrs.id ?? attrs.name);
+        this.sink.signal({ type: "figure", id, column: num(attrs.col), name: attrs.name, caption: attrs.caption });
+        return;
+      }
+      case "build_figure": {
+        this.closeOpen();
+        if (!attrs.name || !attrs.concept) {
+          this.sink.signal({ type: "error", message: "build_figure needs name and concept", line });
+          return;
+        }
+        this.sink.signal({ type: "build_figure", name: attrs.name, concept: attrs.concept });
         return;
       }
       case "image": {
@@ -176,9 +211,9 @@ export class ProtocolParser {
 
   private closeSvg() {
     if (this.mode.kind !== "svg") return;
-    const { id, column, caption, buf } = this.mode;
+    const { id, column, caption, buf, motion } = this.mode;
     const svg = buf.trim();
-    const block = this.validate({ id, type: "svg", column, svg, width: 300, height: 200, caption }, `@svg id=${id}`);
+    const block = this.validate({ id, type: "svg", column, svg, width: 300, height: 200, caption, motion: motion || undefined }, `@svg id=${id}`);
     if (block) this.sink.event({ type: "block.add", block });
     this.mode = { kind: "idle" };
   }

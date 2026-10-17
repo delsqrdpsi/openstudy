@@ -77,6 +77,17 @@ describe("protocol", () => {
     expect(signals[0]).toMatchObject({ type: "error" });
   });
 
+  it("parses motion blocks, figures and build requests", () => {
+    const { events, signals } = parseProtocol(
+      '@motion id=piston col=1 caption="up and down"\n<svg viewBox="0 0 300 200"><rect x="10" y="10" width="20" height="40"><animate attributeName="y" values="10;100;10" dur="2s" repeatCount="indefinite"/></rect></svg>\n@end\n@figure id=dial col=1 name=dial-indicator caption="a real dial"\n@build_figure name=four_stroke concept="a four-stroke engine cylinder with the valves timed to the crank"\n',
+    );
+    expect(events[0]).toMatchObject({ type: "block.add", block: { id: "piston", type: "svg", motion: true, caption: "up and down" } });
+    expect(signals).toEqual([
+      { type: "figure", id: "dial", column: 1, name: "dial-indicator", caption: "a real dial" },
+      { type: "build_figure", name: "four_stroke", concept: "a four-stroke engine cylinder with the valves timed to the crank" },
+    ]);
+  });
+
   it("parses ask options", () => {
     const { signals } = parseProtocol('@say Which one?\n@ask options="A motor burnout|A logic hang|A broken sensor"\n');
     expect(signals).toEqual([{ type: "ask", options: ["A motor burnout", "A logic hang", "A broken sensor"] }]);

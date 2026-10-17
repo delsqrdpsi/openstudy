@@ -1,0 +1,13 @@
+{
+  "name": "lever-balance",
+  "title": "Beam balance",
+  "description": "A first-class lever on a fulcrum: two pans, a sliding weight, and a readout of torque on each side; the beam tips until the torques balance. Shows moment = force times distance.",
+  "tags": [
+    "physics",
+    "mechanics",
+    "torque",
+    "built"
+  ],
+  "source": "Built with the Anatomy skill",
+  "height": 420
+}

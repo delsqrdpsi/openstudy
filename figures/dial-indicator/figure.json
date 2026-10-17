@@ -1,0 +1,8 @@
+{
+  "name": "dial-indicator",
+  "title": "Dial indicator",
+  "description": "A mechanical dial gauge: a plunger moves a rack, the rack turns a pinion, the needle sweeps the dial. Shows gears, lever ratios, precision measurement, mechanical amplification.",
+  "tags": ["mechanics", "gears", "measurement", "engineering"],
+  "source": "Anatomy example by wheresryan22, MIT",
+  "height": 420
+}

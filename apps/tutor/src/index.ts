@@ -5,6 +5,8 @@ import { createBrain } from "./brain";
 import { createImages, imageStore } from "./images";
 import { Session } from "./session";
 import { Store } from "./store";
+import { listFigures, readFigureFile } from "./figures";
+import { listJobs } from "./figures/builder";
 import { log } from "./log";
 
 const PORT = Number(process.env.TUTOR_PORT ?? 8787);
@@ -27,6 +29,16 @@ const http = createServer((req, res) => {
     return json(res, 200, { ok: true, brain: process.env.BRAIN ?? "claude-code", images: process.env.IMAGES ?? (process.env.GEMINI_API_KEY ? "gemini" : "none") });
   }
   if (url.pathname === "/boards" && req.method === "GET") return json(res, 200, store.listBoards());
+  if (url.pathname === "/figures" && req.method === "GET") return json(res, 200, { figures: listFigures(), jobs: listJobs() });
+  const figMatch = /^\/figures\/([a-z0-9][a-z0-9-]*)\/?(.*)$/.exec(url.pathname);
+  if (figMatch && req.method === "GET") {
+    const file = readFigureFile(figMatch[1], decodeURIComponent(figMatch[2]));
+    if (file) {
+      res.writeHead(200, { "content-type": file.type, "cache-control": "public, max-age=3600", ...CORS });
+      res.end(file.bytes);
+      return;
+    }
+  }
   const boardMatch = /^\/boards\/([\w-]+)$/.exec(url.pathname);
   if (boardMatch) {
     const id = boardMatch[1];

@@ -222,6 +222,48 @@ body {
   }
 }
 
+/* Interactive model frames */
+.wb-embed {
+  position: relative;
+  width: 100%;
+  border: 1.5px solid rgba(31, 42, 55, 0.18);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 6px 24px rgba(31, 42, 55, 0.08);
+}
+.wb-embed iframe {
+  display: block;
+  width: 100%;
+  height: calc(100% - 30px);
+  border: 0;
+  background: #fff;
+  /* figure pages bring their own light grey page colour; blend it into the card */
+  mix-blend-mode: multiply;
+}
+.wb-embed-handle {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  font-family: var(--wb-font-ui);
+  font-size: 12px;
+  color: var(--ink-soft);
+  background: rgba(31, 42, 55, 0.04);
+  border-bottom: 1px solid rgba(31, 42, 55, 0.08);
+  cursor: grab;
+  user-select: none;
+}
+.wb-embed-open {
+  color: var(--ink-faint);
+  text-decoration: none;
+  font-size: 14px;
+}
+.wb-embed-open:hover {
+  color: var(--coral);
+}
+
 /* Annotations. The draw-on (dash offset, clip sweep) is set per frame by the
    board's stroke animator, which also moves the pencil along them. */
 .wb-anno-fill {
