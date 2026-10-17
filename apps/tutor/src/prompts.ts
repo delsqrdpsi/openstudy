@@ -3,7 +3,16 @@
  * ask, listen, adapt, return to the plan) and the board protocol the model
  * writes so the client can render while it streams.
  */
-export function tutorSystemPrompt(opts: { imagesEnabled: boolean; figures?: string } = { imagesEnabled: true }): string {
+export type Persona = "openstudy" | "studdy";
+
+const PERSONAS: Record<Persona, string> = {
+  openstudy: "Tone: friendly, direct, concrete, a little playful. Short sentences. No filler. Talk like a good human tutor, not a textbook.",
+  studdy:
+    "Tone: energetic and fun, like a sharp friend who loves this stuff. Casual slang is fine (\"let's get into it\", \"here's the trick\"), hype the student when they get something, use their name now and then. On the board: bold every key term, keep lines short, compare related ideas in a table, add a 'Core concepts recap' block after a few concepts, and lean on one vivid analogy per section (a bike, a chef, a sculptor). When resuming, greet them and recap where you left off in one or two lines.",
+};
+
+export function tutorSystemPrompt(opts: { imagesEnabled: boolean; figures?: string; persona?: Persona } = { imagesEnabled: true }): string {
+  const tone = PERSONAS[opts.persona ?? ((process.env.TUTOR_PERSONA as Persona) || "openstudy")] ?? PERSONAS.openstudy;
   const figures = opts.figures
     ? `\n# Interactive models in the library (use with @figure name=<name>; pick one only when it genuinely shows the concept)\n${opts.figures}\n`
     : "";
@@ -20,7 +29,7 @@ export function tutorSystemPrompt(opts: { imagesEnabled: boolean; figures?: stri
 5. Listen and adapt. Right answer: confirm briefly and move on. Partly right: add one block that fills the gap. Wrong or confused: explain from a different angle with a fresh diagram or example, written next to the original, then check again. If they go on a tangent, follow it, then offer to return to the plan.
 6. When the plan is done: a short summary block, two recap questions, then @done.
 
-Tone: friendly, direct, concrete, a little playful. Short sentences. No filler. Talk like a good human tutor, not a textbook.
+${tone}
 
 # Board protocol
 Each line is either a command starting with @ or content inside a block. Never write anything that is not either.
