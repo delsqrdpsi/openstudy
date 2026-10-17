@@ -3,13 +3,18 @@ import type { ImageStore } from "./store";
 import { stylePrompt } from "./style";
 
 /**
- * OpenAI gpt-image-1. Best at legible labels inside the picture, slower.
- * Env: OPENAI_API_KEY, optional OPENAI_IMAGE_MODEL, OPENAI_IMAGE_QUALITY (low|medium|high).
+ * OpenAI image models. gpt-image-1 draws the most legible labels but takes
+ * 20 to 30 seconds at medium quality; gpt-image-1-mini at low quality is
+ * about 8 seconds and a fraction of the price, and is plenty for a pencil
+ * sketch on a whiteboard, so that is the default.
+ * Env: OPENAI_API_KEY, optional OPENAI_IMAGE_MODEL (gpt-image-1-mini | gpt-image-1),
+ * OPENAI_IMAGE_QUALITY (low | medium | high), OPENAI_IMAGE_SIZE (1536x1024 | 1024x1024 | 1024x1536).
  */
 export class OpenAIImages implements ImageBackend {
   readonly name = "openai";
-  private readonly model = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1";
-  private readonly quality = process.env.OPENAI_IMAGE_QUALITY ?? "medium";
+  private readonly model = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1-mini";
+  private readonly quality = process.env.OPENAI_IMAGE_QUALITY ?? "low";
+  private readonly size = process.env.OPENAI_IMAGE_SIZE ?? "1536x1024";
   constructor(private readonly store: ImageStore, private readonly apiKey = process.env.OPENAI_API_KEY ?? "") {
     if (!this.apiKey) throw new Error("OPENAI_API_KEY is not set");
   }
@@ -19,7 +24,7 @@ export class OpenAIImages implements ImageBackend {
       method: "POST",
       signal,
       headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
-      body: JSON.stringify({ model: this.model, prompt: stylePrompt(prompt), size: "1536x1024", quality: this.quality, n: 1 }),
+      body: JSON.stringify({ model: this.model, prompt: stylePrompt(prompt), size: this.size, quality: this.quality, n: 1 }),
     });
     if (!res.ok) throw new Error(`openai ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const data = (await res.json()) as { data?: { b64_json?: string }[] };
