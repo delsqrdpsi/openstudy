@@ -153,10 +153,10 @@ export class Session {
     if (!this.images) return;
     for (const s of plan.sections) {
       for (const im of s.images) {
-        this.readyImages.set(
-          im.id,
-          this.images.generate({ id: im.id, prompt: im.prompt }).then((r) => r.url),
-        );
+        const ready = this.images.generate({ id: im.id, prompt: im.prompt }).then((r) => r.url);
+        // The failure is handled when the picture is placed; until then it must not be an unhandled rejection.
+        ready.catch((err) => log.warn("image pregeneration failed", im.id, err instanceof Error ? err.message : err));
+        this.readyImages.set(im.id, ready);
       }
     }
   }

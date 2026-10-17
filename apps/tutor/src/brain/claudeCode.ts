@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { dataDir } from "../paths";
 import type { Brain, TurnInput, TurnResult } from "./types";
 import { log } from "../log";
 
@@ -122,7 +123,7 @@ export class ClaudeCodeBrain implements Brain {
 
 /** One empty directory for every CLI run, under the data dir, created on first use. */
 function brainDir(): string {
-  const dir = process.env.DATA_DIR ? join(process.env.DATA_DIR, "brain") : resolve(process.cwd(), "../../data/brain");
+  const dir = join(dataDir(), "brain");
   mkdirSync(dir, { recursive: true });
   return dir;
 }

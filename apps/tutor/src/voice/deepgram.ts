@@ -89,6 +89,7 @@ export function bridgeTranscription(client: WebSocket, params: URLSearchParams) 
   };
 
   up.on("open", () => {
+    log.info("stt bridge open");
     for (const b of held) up.send(b);
     held.length = 0;
     keepalive = setInterval(() => {
@@ -117,6 +118,7 @@ export function bridgeTranscription(client: WebSocket, params: URLSearchParams) 
   });
   client.on("close", () => {
     stop();
+    log.info("stt bridge closed");
     if (up.readyState === WebSocket.OPEN) {
       up.send(JSON.stringify({ type: "CloseStream" }));
       up.close();

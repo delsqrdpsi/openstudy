@@ -11,6 +11,10 @@ import { bridgeTranscription, SAMPLE_RATE, speak, voiceConfig, VoiceError } from
 import { log } from "./log";
 
 const PORT = Number(process.env.TUTOR_PORT ?? 8787);
+
+// One failed picture or model call must never take the server down with every lesson on it.
+process.on("unhandledRejection", (err) => log.error("unhandled rejection:", err instanceof Error ? err.message : err));
+process.on("uncaughtException", (err) => log.error("uncaught exception:", err.message));
 const store = new Store();
 
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST, DELETE, OPTIONS", "access-control-allow-headers": "content-type" };
