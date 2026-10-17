@@ -1,12 +1,29 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { TUTOR_HTTP } from "./useLiveSession";
+import { useBrowserVoice } from "./useBrowserVoice";
+import { useDeepgramVoice } from "./useDeepgramVoice";
 
-/**
- * Voice in the browser, no keys and no server: speech synthesis for the
- * tutor, speech recognition for the student, and barge-in (the student
- * starting to talk stops the tutor). Word boundaries from the synthesiser
- * drive the spoken / upcoming caption styling.
- */
+/** What any voice gives the lesson, hosted or built into the browser. */
+export interface VoiceApi {
+  provider: "browser" | "deepgram";
+  supported: { tts: boolean; stt: boolean };
+  muted: boolean;
+  setMuted: (on: boolean) => void;
+  listening: boolean;
+  setListening: (on: boolean) => void;
+  speaking: boolean;
+  caption: Caption | null;
+  rate: number;
+  setRate: (r: number) => void;
+  /** Say a line; `onEnd` fires when it has been heard or cut off. False when nothing will be said. */
+  speak: (text: string, onEnd?: () => void) => boolean;
+  /** How long a line takes to say, in ms. */
+  estimate: (text: string) => number;
+  /** Stop now and drop what is queued. */
+  stop: () => void;
+}
+
 export interface VoiceOptions {
   /** Called with the final transcript of something the student said. */
   onUserSpeech: (text: string) => void;
@@ -21,225 +38,32 @@ export interface Caption {
   wordIndex: number;
 }
 
-type Recognition = {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: ((e: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null;
-  onend: (() => void) | null;
-  onerror: ((e: { error: string }) => void) | null;
-  start(): void;
-  stop(): void;
-  abort(): void;
-};
+export type VoiceConfig = { provider: "browser" } | { provider: "deepgram"; tts: string; stt: string; sampleRate: number };
 
-function getRecognitionCtor(): (new () => Recognition) | null {
-  if (typeof window === "undefined") return null;
-  const w = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+/** The tutor server says which voice is set up (a Deepgram key, or none). */
+export function useVoiceConfig(): VoiceConfig | null {
+  const [cfg, setCfg] = useState<VoiceConfig | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`${TUTOR_HTTP}/voice`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((c: VoiceConfig | null) => {
+        if (alive) setCfg(c?.provider === "deepgram" ? c : { provider: "browser" });
+      })
+      .catch(() => {
+        if (alive) setCfg({ provider: "browser" });
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return cfg;
 }
 
-export function useVoice(opts: VoiceOptions) {
-  const optsRef = useRef(opts);
-  useEffect(() => {
-    optsRef.current = opts;
-  }, [opts]);
-
-  const [supported, setSupported] = useState({ tts: false, stt: false });
-  const [muted, setMuted] = useState(false);
-  const [listening, setListening] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
-  const [caption, setCaption] = useState<Caption | null>(null);
-  const [rate, setRate] = useState(1.05);
-
-  const queue = useRef<{ text: string; onStart?: () => void }[]>([]);
-  const current = useRef<SpeechSynthesisUtterance | null>(null);
-  const mutedRef = useRef(muted);
-  const rateRef = useRef(rate);
-  const speakingRef = useRef(false);
-  const rec = useRef<Recognition | null>(null);
-  const wantListening = useRef(false);
-  const playNextRef = useRef<() => void>(() => {});
-
-  useEffect(() => {
-    // Detected after mount so server and client render the same markup.
-    const id = window.setTimeout(() => setSupported({ tts: "speechSynthesis" in window, stt: !!getRecognitionCtor() }), 0);
-    return () => window.clearTimeout(id);
-  }, []);
-  const setMutedOn = useCallback((on: boolean) => {
-    mutedRef.current = on;
-    setMuted(on);
-    if (on) {
-      queue.current = [];
-      window.speechSynthesis?.cancel();
-      speakingRef.current = false;
-      setSpeaking(false);
-      setCaption(null);
-    }
-  }, []);
-  useEffect(() => {
-    rateRef.current = rate;
-  }, [rate]);
-
-  const pickVoice = useCallback(() => {
-    const voices = window.speechSynthesis.getVoices();
-    const lang = optsRef.current.lang ?? "en";
-    const preferred = ["Google US English", "Samantha", "Microsoft Aria", "Microsoft Jenny", "Daniel", "Karen"];
-    for (const name of preferred) {
-      const v = voices.find((x) => x.name.includes(name) && x.lang.startsWith(lang));
-      if (v) return v;
-    }
-    return voices.find((v) => v.lang.startsWith(lang) && !v.localService) ?? voices.find((v) => v.lang.startsWith(lang)) ?? null;
-  }, []);
-
-  const playNext = useCallback(() => {
-    if (speakingRef.current || mutedRef.current) return;
-    const next = queue.current.shift();
-    if (!next) {
-      setSpeaking(false);
-      return;
-    }
-    const { text, onStart } = next;
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = rateRef.current;
-    u.pitch = 1;
-    const v = pickVoice();
-    if (v) u.voice = v;
-    const words = text.split(/\s+/);
-    // char offsets of each word, so onboundary can map charIndex to a word
-    const offsets: number[] = [];
-    let pos = 0;
-    for (const w of words) {
-      const i = text.indexOf(w, pos);
-      offsets.push(i);
-      pos = i + w.length;
-    }
-    setCaption({ text, wordIndex: -1 });
-    let started = false;
-    const markStart = () => {
-      if (started) return;
-      started = true;
-      onStart?.();
-    };
-    u.onstart = markStart;
-    u.onboundary = (e) => {
-      markStart();
-      if (e.name !== "word") return;
-      let idx = 0;
-      for (let i = 0; i < offsets.length; i++) if (offsets[i] <= e.charIndex) idx = i;
-      setCaption({ text, wordIndex: idx });
-    };
-    const done = () => {
-      markStart();
-      if (current.current !== u) return;
-      current.current = null;
-      speakingRef.current = false;
-      setCaption((c) => (c && c.text === text ? { text, wordIndex: words.length } : c));
-      playNextRef.current();
-    };
-    u.onend = done;
-    u.onerror = done;
-    current.current = u;
-    speakingRef.current = true;
-    setSpeaking(true);
-    window.speechSynthesis.speak(u);
-  }, [pickVoice]);
-  useEffect(() => {
-    playNextRef.current = playNext;
-  }, [playNext]);
-
-  /** Queue a line of narration. Returns false when it will not be voiced. */
-  const speak = useCallback(
-    (text: string, onStart?: () => void) => {
-      if (!supported.tts || mutedRef.current) return false;
-      queue.current.push({ text, onStart });
-      playNext();
-      return true;
-    },
-    [supported.tts, playNext],
-  );
-
-  /** Stop the tutor's voice now and drop anything queued. */
-  const stop = useCallback(() => {
-    queue.current = [];
-    current.current = null;
-    speakingRef.current = false;
-    window.speechSynthesis?.cancel();
-    setSpeaking(false);
-  }, []);
-
-  // Speech recognition with auto-restart while listening is on.
-  const startRec = useCallback(() => {
-    const Ctor = getRecognitionCtor();
-    if (!Ctor) return;
-    const r = new Ctor();
-    r.continuous = true;
-    r.interimResults = true;
-    r.lang = optsRef.current.lang ?? "en-US";
-    let bargedIn = false;
-    r.onresult = (e) => {
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const res = e.results[i];
-        const t = res[0].transcript;
-        if (res.isFinal) {
-          bargedIn = false;
-          const clean = t.trim();
-          if (clean) optsRef.current.onUserSpeech(clean);
-        } else interim += t;
-      }
-      // Barge-in: a few real words while the tutor talks. Short fragments are
-      // ignored so the speaker echo does not trip it.
-      if (!bargedIn && speakingRef.current && interim.trim().split(/\s+/).length >= 3) {
-        bargedIn = true;
-        stop();
-        optsRef.current.onBargeIn();
-      }
-    };
-    r.onerror = (e) => {
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        wantListening.current = false;
-        setListening(false);
-      }
-    };
-    r.onend = () => {
-      if (wantListening.current) {
-        try {
-          r.start();
-        } catch {
-          /* already started */
-        }
-      }
-    };
-    rec.current = r;
-    try {
-      r.start();
-    } catch {
-      /* ignore */
-    }
-  }, [stop]);
-
-  const setListeningOn = useCallback(
-    (on: boolean) => {
-      wantListening.current = on;
-      setListening(on);
-      if (on) startRec();
-      else {
-        rec.current?.abort();
-        rec.current = null;
-      }
-    },
-    [startRec],
-  );
-
-  useEffect(
-    () => () => {
-      wantListening.current = false;
-      rec.current?.abort();
-      window.speechSynthesis?.cancel();
-    },
-    [],
-  );
-
-  return { supported, muted, setMuted: setMutedOn, listening, setListening: setListeningOn, speaking, caption, rate, setRate, speak, stop };
+/** The voice for a live lesson: Deepgram when the server has a key, else the browser's own. */
+export function useVoice(opts: VoiceOptions): VoiceApi {
+  const cfg = useVoiceConfig();
+  const browser = useBrowserVoice(opts);
+  const hosted = useDeepgramVoice(opts, cfg?.provider === "deepgram" ? cfg : null);
+  return cfg?.provider === "deepgram" ? hosted : browser;
 }

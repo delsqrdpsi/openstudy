@@ -1,6 +1,7 @@
+import { dataDir } from "./paths";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import type { BoardSummary, LessonEvent, LogEntry } from "@openstudy/shared";
 
 /**
@@ -23,7 +24,7 @@ export interface BoardRow {
 export class Store {
   private db: DatabaseSync;
 
-  constructor(file = process.env.DATA_DIR ? join(process.env.DATA_DIR, "openstudy.db") : resolve(process.cwd(), "../../data/openstudy.db")) {
+  constructor(file = join(dataDir(), "openstudy.db")) {
     if (file !== ":memory:") mkdirSync(dirname(file), { recursive: true });
     this.db = new DatabaseSync(file);
     this.db.exec(`

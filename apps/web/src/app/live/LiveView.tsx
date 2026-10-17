@@ -1,7 +1,7 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useLiveSession } from "@/board/useLiveSession";
+import { useLiveSession, type Speaker } from "@/board/useLiveSession";
 import { useVoice } from "@/board/useVoice";
 import { LessonShell } from "@/board/LessonShell";
 
@@ -13,9 +13,9 @@ export function LiveView() {
     onUserSpeech: (text) => liveRef.current?.say(text),
     onBargeIn: () => liveRef.current?.interrupt(),
   });
-  const speak = voice.speak;
-  const onSay = useCallback((text: string, index: number) => speak(text, () => liveRef.current?.releaseSay(index)), [speak]);
-  const live = useLiveSession({ onSay });
+  const { speak, estimate } = voice;
+  const speaker = useMemo<Speaker>(() => ({ speak, estimateMs: estimate }), [speak, estimate]);
+  const live = useLiveSession({ speaker });
   useEffect(() => {
     liveRef.current = live;
   }, [live]);
@@ -88,7 +88,7 @@ export function LiveView() {
               className={`ui-btn${voice.listening ? " is-on" : ""}`}
               onClick={() => voice.setListening(!voice.listening)}
               disabled={!voice.supported.stt}
-              title={voice.supported.stt ? (voice.listening ? "Mic is on. Click to mute." : "Turn the mic on to talk to the tutor") : "Speech recognition needs Chrome or Edge"}
+              title={voice.supported.stt ? (voice.listening ? "Mic is on. Click to mute." : "Turn the mic on to talk to the tutor") : voice.provider === "deepgram" ? "This browser cannot record audio" : "Speech recognition needs Chrome or Edge, or a Deepgram key"}
               aria-label={voice.listening ? "Mute microphone" : "Unmute microphone"}
             >
               <MicIcon off={!voice.listening} />
@@ -102,10 +102,12 @@ export function LiveView() {
             >
               <SpeakerIcon off={voice.muted} />
             </button>
-            <button className="ui-btn" onClick={() => setShowVoiceMenu((v) => !v)} aria-label="Voice settings" title="Speech speed">
-              {voice.rate.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")}×
-            </button>
-            {showVoiceMenu && (
+            {voice.provider === "browser" && (
+              <button className="ui-btn" onClick={() => setShowVoiceMenu((v) => !v)} aria-label="Voice settings" title="Speech speed">
+                {voice.rate.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")}×
+              </button>
+            )}
+            {showVoiceMenu && voice.provider === "browser" && (
               <div className="ui-card absolute bottom-12 left-0 flex items-center gap-2 p-2 text-[12px]">
                 <span>Speed</span>
                 <input type="range" min={0.7} max={1.6} step={0.05} value={voice.rate} onChange={(e) => voice.setRate(Number(e.target.value))} aria-label="Speech speed" />
@@ -114,7 +116,7 @@ export function LiveView() {
           </div>
           {live.info && (
             <span className="ui-card px-3 py-1.5 text-[12px] text-neutral-500">
-              {live.info.brain} · {live.info.model}
+              {live.info.brain} · {live.info.model} · {voice.provider === "deepgram" ? "aura-2" : "browser voice"}
             </span>
           )}
         </>
