@@ -14,7 +14,7 @@ export function LiveView() {
     onBargeIn: () => liveRef.current?.interrupt(),
   });
   const speak = voice.speak;
-  const onSay = useCallback((text: string) => speak(text), [speak]);
+  const onSay = useCallback((text: string, index: number) => speak(text, () => liveRef.current?.releaseSay(index)), [speak]);
   const live = useLiveSession({ onSay });
   useEffect(() => {
     liveRef.current = live;

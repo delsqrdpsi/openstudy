@@ -34,6 +34,9 @@ export class Session {
   private abort: AbortController | null = null;
   private spoken: string[] = [];
   private queued: string | null = null;
+  /** Blocks added this turn, tagged with how many @say lines preceded them. */
+  private turnBlocks: { id: string; afterSay: number }[] = [];
+  private heard: number | null = null;
   private turns = 0;
   private plan: Promise<LessonPlan | null> = Promise.resolve(null);
   private planDelivered = false;
@@ -91,6 +94,14 @@ export class Session {
       if (parsed.success) this.plan = Promise.resolve(parsed.data);
     }
     this.setState("waiting");
+    if (log.length > 0) {
+      // Greet the returning student and recap, the way a tutor would when you walk back in.
+      const lastSaid = [...log].reverse().find((e) => e.kind === "event" && e.event.type === "say");
+      const heard = lastSaid && lastSaid.kind === "event" && lastSaid.event.type === "say" ? lastSaid.event.text : "";
+      await this.runTurn(
+        `[The student just came back to this board after a break. The last thing you said was: "${heard.slice(0, 200)}". Greet them, recap where the lesson was in one or two spoken lines, ask if they are ready to pick up, then @ask. Do not add new board blocks in this turn.]`,
+      );
+    }
   }
 
   async user(text: string) {
@@ -136,7 +147,8 @@ export class Session {
     await this.runTurn(text);
   }
 
-  interrupt() {
+  interrupt(heard?: number) {
+    this.heard = heard ?? null;
     this.abort?.abort();
   }
 
@@ -171,6 +183,7 @@ export class Session {
       this.spoken.push(e.text);
       if (this.state === "thinking") this.setState("speaking");
     }
+    if (e.type === "block.add") this.turnBlocks.push({ id: e.block.id, afterSay: this.spoken.length });
     if (e.type === "block.add" && e.block.type === "image") this.resolveImage(e.block.id, e.block.prompt);
   }
 
@@ -238,6 +251,8 @@ export class Session {
     this.abort = new AbortController();
     const { signal } = this.abort;
     this.spoken = [];
+    this.turnBlocks = [];
+    this.heard = null;
     this.turns += 1;
     this.setState("thinking");
     let ended: "ask" | "done" | null = null;
@@ -267,13 +282,18 @@ export class Session {
     if (result.meta) this.send({ type: "debug", text: `turn ${this.turns}: ${JSON.stringify(result.meta)}` });
 
     if (result.status === "aborted") {
-      const heard = this.spoken.join(" ");
+      // The client paces the board to speech, so anything after the last
+      // line the student heard was never shown. Take it off the board.
+      const heardCount = this.heard ?? this.spoken.length;
+      const unseen = this.turnBlocks.filter((b) => b.afterSay > heardCount);
+      for (const b of unseen) this.update({ type: "block.remove", id: b.id });
+      const heard = this.spoken.slice(0, heardCount).join(" ");
       const next = this.queued;
       this.queued = null;
       this.setState("waiting");
       if (next) {
         await this.runTurn(
-          `[The student interrupted you. They heard up to: "${heard.slice(-300)}". Keep what is on the board. Answer them, then continue.]\n\n${next}`,
+          `[The student interrupted you. They heard up to: "${heard.slice(-300)}". ${unseen.length ? "The blocks you wrote after that were removed from the board; re-add them later if they still matter." : "Keep what is on the board."} Answer them, then continue.]\n\n${next}`,
         );
       }
       return;

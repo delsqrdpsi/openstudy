@@ -52,7 +52,7 @@ export function useVoice(opts: VoiceOptions) {
   const [caption, setCaption] = useState<Caption | null>(null);
   const [rate, setRate] = useState(1.05);
 
-  const queue = useRef<string[]>([]);
+  const queue = useRef<{ text: string; onStart?: () => void }[]>([]);
   const current = useRef<SpeechSynthesisUtterance | null>(null);
   const mutedRef = useRef(muted);
   const rateRef = useRef(rate);
@@ -94,11 +94,12 @@ export function useVoice(opts: VoiceOptions) {
 
   const playNext = useCallback(() => {
     if (speakingRef.current || mutedRef.current) return;
-    const text = queue.current.shift();
-    if (!text) {
+    const next = queue.current.shift();
+    if (!next) {
       setSpeaking(false);
       return;
     }
+    const { text, onStart } = next;
     const u = new SpeechSynthesisUtterance(text);
     u.rate = rateRef.current;
     u.pitch = 1;
@@ -114,13 +115,22 @@ export function useVoice(opts: VoiceOptions) {
       pos = i + w.length;
     }
     setCaption({ text, wordIndex: -1 });
+    let started = false;
+    const markStart = () => {
+      if (started) return;
+      started = true;
+      onStart?.();
+    };
+    u.onstart = markStart;
     u.onboundary = (e) => {
+      markStart();
       if (e.name !== "word") return;
       let idx = 0;
       for (let i = 0; i < offsets.length; i++) if (offsets[i] <= e.charIndex) idx = i;
       setCaption({ text, wordIndex: idx });
     };
     const done = () => {
+      markStart();
       if (current.current !== u) return;
       current.current = null;
       speakingRef.current = false;
@@ -138,12 +148,13 @@ export function useVoice(opts: VoiceOptions) {
     playNextRef.current = playNext;
   }, [playNext]);
 
-  /** Queue a line of narration. */
+  /** Queue a line of narration. Returns false when it will not be voiced. */
   const speak = useCallback(
-    (text: string) => {
-      if (!supported.tts || mutedRef.current) return;
-      queue.current.push(text);
+    (text: string, onStart?: () => void) => {
+      if (!supported.tts || mutedRef.current) return false;
+      queue.current.push({ text, onStart });
       playNext();
+      return true;
     },
     [supported.tts, playNext],
   );

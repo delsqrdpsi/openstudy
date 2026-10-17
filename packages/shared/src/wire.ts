@@ -14,7 +14,8 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     resume: z.string().optional(),
   }),
   z.object({ type: z.literal("user"), text: z.string().min(1) }),
-  z.object({ type: z.literal("interrupt") }),
+  /** heard: how many @say lines of the current turn the student actually heard. */
+  z.object({ type: z.literal("interrupt"), heard: z.number().int().nonnegative().optional() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 

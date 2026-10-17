@@ -105,7 +105,7 @@ wss.on("connection", (ws: WebSocket) => {
           await session.user(msg.text);
           break;
         case "interrupt":
-          session?.interrupt();
+          session?.interrupt(msg.heard);
           break;
       }
     } catch (err) {

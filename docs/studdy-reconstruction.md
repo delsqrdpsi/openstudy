@@ -67,6 +67,41 @@ From the product's own UI strings (next-intl messages in the page):
 - Student can attach PDFs, images, text and links; the UI says long
   documents are outlined ("Building outline...") before the lesson.
 
+## From a full lesson transcript (AlphaNIST, Alfrenzo persona)
+
+- Every turn: two to five short spoken paragraphs, one or two board blocks,
+  and it always ends with a question, usually a soft check ("Does that
+  click?", "Ready to see X?"), sometimes a choice ("Which of these sounds
+  like you?").
+- No plan is shown. It opens with a hook and one intake question ("have you
+  played with RL before, or are we starting from the ground floor?") and
+  builds the board as it goes, a column per sub-topic.
+- Detours are followed fully (SFT in LLMs, teleop vs imitation, "give me a
+  list", "the mathematical intuition", "make it a flowchart"), each as new
+  blocks, then it offers to return to the main topic. When the student
+  refuses ("No, I don't want to go back yet") it drops it.
+- Confusion escalates through different explanations, never a repeat: an
+  analogy (mosaic), another analogy (jigsaw), then the concrete mechanism
+  with numbers (a 3 by 3 receptive field).
+- It narrates its own visuals right after drawing them: "Look at that first
+  panel", "See those horizontal arrows?", "This thing right here is called
+  the Score Function".
+- It knows input is speech-to-text: "Huddle? Tinnitus? I think the
+  speech-to-text did a little freestyle on you there", and "Oh my bad, I
+  totally misheard you" when it answered the wrong thing.
+- Pauses: "Give me a minute" gets "No rush at all, take your time".
+- Resume after a break: a proactive greeting with the student's name, a
+  one-line recap, and "ready to pick up where we left off?".
+- "Regenerate another image" produced a second picture with a new id and a
+  fresh description of what to look at.
+- Persona vocabulary (Alfrenzo): "Yo!", "Ayy", "trust me", "I got you",
+  "Spot on!", "legendary question", "MVP", "secret sauce", "vibe", "jam
+  session", "deep in the paint", "let's get into it".
+
+All of these are now in OpenStudy's tutor prompt (turn shape, detours,
+escalation, narration, voice-noise handling, pauses, resume greeting) and
+the `studdy` persona preset.
+
 ## Inferred prompt
 
 What follows is my best reconstruction. The shape is confident; the exact
