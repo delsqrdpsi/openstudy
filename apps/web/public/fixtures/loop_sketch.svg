@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 528 288" width="528" height="288">
+  <rect width="528" height="288" fill="#fff"/>
+  <g fill="none" stroke="#3a3a3a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- robot -->
+    <rect x="62" y="118" width="74" height="60" rx="10"/>
+    <circle cx="86" cy="142" r="5" fill="#3a3a3a"/>
+    <circle cx="112" cy="142" r="5" fill="#3a3a3a"/>
+    <path d="M80 164 q19 10 38 0"/>
+    <path d="M99 118 v-18 m-6 0 h12"/>
+    <path d="M62 150 h-18 q-10 0 -10 10 v14" />
+    <path d="M136 150 h18 q10 0 10 10 v14" />
+    <rect x="72" y="178" width="22" height="20" rx="4"/>
+    <rect x="104" y="178" width="22" height="20" rx="4"/>
+    <!-- maze -->
+    <path d="M190 90 h140 v110 h-140 z" stroke-dasharray="0"/>
+    <path d="M226 90 v40 m36 0 h-36 m72 -40 v70 h-36 m-36 40 v-30 h36 v30"/>
+    <!-- coin -->
+    <circle cx="300" cy="170" r="16" fill="#FFD66B" stroke="#b58a00"/>
+    <text x="300" y="176" font-size="16" text-anchor="middle" fill="#8a6500" font-family="Caveat, cursive" stroke="none">$</text>
+    <!-- loop arrows -->
+    <path d="M400 70 a60 60 0 1 1 -1 0" stroke="#0085CF" stroke-width="3"/>
+    <path d="M399 70 l-10 -8 m10 8 l-12 5" stroke="#0085CF" stroke-width="3"/>
+  </g>
+  <g font-family="Caveat, Kalam, cursive" font-size="20" fill="#222">
+    <text x="440" y="60" text-anchor="middle">action</text>
+    <text x="494" y="140" text-anchor="middle">state</text>
+    <text x="390" y="215" text-anchor="middle">reward</text>
+    <text x="99" y="230" text-anchor="middle">agent</text>
+    <text x="260" y="230" text-anchor="middle">environment</text>
+  </g>
+  <text x="264" y="270" font-family="Caveat, cursive" font-size="16" fill="#666" text-anchor="middle">fixture sketch, stands in for a generated image</text>
+</svg>

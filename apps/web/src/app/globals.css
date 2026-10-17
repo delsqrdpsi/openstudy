@@ -1,0 +1,197 @@
+@import "tailwindcss";
+@import "@fontsource/caveat/400.css";
+@import "@fontsource/caveat/700.css";
+@import "@fontsource/kalam/400.css";
+@import "katex/dist/katex.min.css";
+
+:root {
+  --background: #fdfcf7;
+  --foreground: #222222;
+  --wb-font-family: "Caveat", "Kalam", "Noto Sans", cursive;
+  --wb-font-size: 26px;
+  --wb-line-height: 1.25;
+  --wb-ink: #222222;
+  --wb-accent: #06b2fc;
+  --wb-highlight: #ffc800;
+  --wb-pink: #f653a2;
+}
+
+html,
+body {
+  height: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Paper texture: a faint dot grid that pans and zooms with nothing; it stays fixed like real paper under glass. */
+.wb-paper {
+  background-color: var(--background);
+  background-image: radial-gradient(rgba(0, 0, 0, 0.06) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.wb-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+  cursor: default;
+  user-select: none;
+}
+.wb-viewport.is-panning {
+  cursor: grabbing;
+}
+.wb-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.wb-item {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Handwritten text blocks */
+.wb-html {
+  font-family: var(--wb-font-family);
+  font-size: var(--wb-font-size);
+  line-height: var(--wb-line-height);
+  color: var(--wb-ink);
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+.wb-html h1 {
+  font-size: 1.55em;
+  font-weight: 700;
+  line-height: 1.15;
+  margin: 0 0 0.15em;
+}
+.wb-html h2 {
+  font-size: 1.3em;
+  font-weight: 700;
+  margin: 0 0 0.1em;
+}
+.wb-html h3 {
+  font-size: 1.12em;
+  font-weight: 700;
+  margin: 0;
+}
+.wb-html b,
+.wb-html strong {
+  font-weight: 700;
+}
+.wb-html table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.1em 0;
+}
+.wb-html th,
+.wb-html td {
+  border: 1.5px solid #3a3a3a;
+  padding: 2px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.wb-html th {
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.035);
+}
+.wb-html .katex {
+  font-size: 0.95em;
+}
+.wb-html ul,
+.wb-html ol {
+  padding-left: 1.2em;
+}
+
+/* The caret that follows handwriting while a block streams in */
+.wb-html.is-writing::after {
+  content: "";
+  display: inline-block;
+  width: 0.08em;
+  height: 0.9em;
+  margin-left: 2px;
+  vertical-align: -0.1em;
+  background: var(--wb-ink);
+  animation: wb-blink 0.9s steps(2, start) infinite;
+}
+@keyframes wb-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+.wb-caption {
+  font-family: var(--wb-font-family);
+  font-size: 20px;
+  color: #555;
+  margin-top: 6px;
+}
+
+/* Image placeholder: a soft cloud of pastel dots that drifts */
+.wb-dotcloud {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.wb-dotcloud span {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  opacity: 0.55;
+  animation: wb-drift 3.2s ease-in-out infinite alternate;
+}
+@keyframes wb-drift {
+  from {
+    transform: translate(0, 0) scale(0.9);
+    opacity: 0.25;
+  }
+  to {
+    transform: translate(var(--dx, 4px), var(--dy, -6px)) scale(1.1);
+    opacity: 0.7;
+  }
+}
+
+/* Annotation draw-on */
+.wb-anno-stroke {
+  stroke-dasharray: var(--len);
+  stroke-dashoffset: var(--len);
+  animation: wb-draw 700ms ease-out forwards;
+}
+@keyframes wb-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.wb-anno-fill {
+  opacity: 0;
+  animation: wb-fade 500ms ease-out forwards;
+}
+@keyframes wb-fade {
+  to {
+    opacity: 0.28;
+  }
+}
+
+/* Fade-in for new items */
+.wb-enter {
+  animation: wb-enter 260ms ease-out;
+}
+@keyframes wb-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}

@@ -126,6 +126,30 @@ The avatar is an inline SVG whose eyes and mouth are animated with
   timings. Local engines by default, hosted ones optional.
 - SQLite on disk. No Supabase, no auth, no paywall.
 
+
+### Flow (how a lesson goes)
+
+1. **Intake.** A text box plus file drop (PDF, images, text, links). The
+   tutor reads what you gave it and asks, in voice and on the board, what you
+   want covered, how deep, and what you already know. Two or three turns,
+   conversational, not a form.
+2. **Plan.** Fable turns the intake into a lesson plan. The plan is shown as
+   a short outline block at the top of the board so you can see where you are.
+3. **Teach a concept.** Text, diagram, picture, narration, in parallel.
+4. **Socratic check.** After each concept the tutor asks a real question, not
+   "is that clear". Your answer drives the next step:
+   - right: a quick confirmation, move on;
+   - partly right: a targeted follow-up block that fills the gap;
+   - wrong or confused: a new explanation from a different angle, often a
+     fresh diagram, written onto the board next to the original;
+   - a tangent: follow it, then offer "want to come back to the plan?".
+5. **Return to plan.** The outline block tracks progress. The tutor can
+   always jump back to the next unfinished section, and so can you by
+   clicking the outline.
+6. **Wrap.** Summary block, two or three recap questions, board saved.
+
+The tutor prompt enforces the rhythm: explain, ask, listen, adapt, return.
+
 ### Architecture
 
 ```

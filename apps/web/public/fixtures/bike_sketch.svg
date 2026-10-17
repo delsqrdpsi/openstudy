@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 528 288" width="528" height="288">
+  <rect width="528" height="288" fill="#fff"/>
+  <g fill="none" stroke="#3a3a3a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M40 220 q120 -8 448 0" stroke="#9a9a9a"/>
+    <!-- wheels -->
+    <circle cx="300" cy="200" r="34"/>
+    <circle cx="410" cy="200" r="34"/>
+    <circle cx="300" cy="200" r="4" fill="#3a3a3a"/>
+    <circle cx="410" cy="200" r="4" fill="#3a3a3a"/>
+    <!-- frame, tilted -->
+    <path d="M300 200 l48 -56 l62 56 m-62 -56 l-10 -22 l20 -4 m-10 26 l-38 0 l0 -30"/>
+    <path d="M348 144 l-18 -30 l-26 8"/>
+    <!-- rider -->
+    <circle cx="352" cy="92" r="16"/>
+    <path d="M352 108 l-12 40 l-20 30 m12 -30 l24 10 m-24 -10 l4 -32 l20 -8"/>
+    <path d="M340 148 q-10 20 -4 36"/>
+    <!-- wobble lines -->
+    <path d="M250 150 q-8 6 0 12 m-14 -18 q-8 6 0 12" stroke="#777"/>
+    <!-- cookies -->
+    <g fill="#E9B872" stroke="#9a6b2a">
+      <circle cx="80" cy="212" r="9"/><circle cx="130" cy="214" r="9"/><circle cx="180" cy="211" r="9"/><circle cx="230" cy="214" r="9"/>
+    </g>
+    <g fill="#5a3a1a" stroke="none">
+      <circle cx="77" cy="210" r="1.6"/><circle cx="84" cy="215" r="1.6"/><circle cx="128" cy="211" r="1.6"/><circle cx="134" cy="217" r="1.6"/>
+      <circle cx="177" cy="209" r="1.6"/><circle cx="184" cy="214" r="1.6"/><circle cx="227" cy="212" r="1.6"/><circle cx="233" cy="217" r="1.6"/>
+    </g>
+  </g>
+  <g font-family="Caveat, Kalam, cursive" font-size="20" fill="#222">
+    <text x="150" y="190" text-anchor="middle">cookies = reward</text>
+    <text x="440" y="120" text-anchor="middle">wobble, fall, adjust</text>
+  </g>
+  <text x="264" y="270" font-family="Caveat, cursive" font-size="16" fill="#666" text-anchor="middle">fixture sketch, stands in for a generated image</text>
+</svg>
