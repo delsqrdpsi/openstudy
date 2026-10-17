@@ -112,21 +112,40 @@ The avatar is an inline SVG whose eyes and mouth are animated with
 
 ## Part B. Build plan
 
+### Decisions (2026-10-17)
+
+- Self-hosted, single user. You run it on your own machine. Anyone who clones
+  the repo runs it for themselves. It is not a hosted product.
+- Thinking runs on your Claude subscription through Claude Code headless mode,
+  not an API key. Fable plans the lesson. The live tutor turn uses whatever
+  model on your plan feels fast enough.
+- Images come from a hosted API, generated in parallel while the tutor keeps
+  talking. Default Gemini 2.5 Flash Image. gpt-image-1 behind a flag, promoted
+  to default only if measured latency is acceptable (target under 10 s).
+- Voice is a cascade: speech-to-text, text model, text-to-speech with word
+  timings. Local engines by default, hosted ones optional.
+- SQLite on disk. No Supabase, no auth, no paywall.
+
 ### Architecture
 
 ```
 Browser (Next.js)
-  Board renderer  <- block stream (websocket / SSE)
+  Board renderer  <- block stream (websocket)
   Mic -> STT      -> transcript events
   Audio player    <- TTS audio + word timings
         |
-Tutor server (Node)
-  Session loop: transcript in -> text model -> {speech, tool calls} out
+Tutor server (Node, local)
+  Session loop: transcript in -> brain -> {speech text, tool calls} out
   Tools: write_block, draw_svg, show_image, annotate, point_at, new_section
-  Planner: topic -> lesson plan JSON (sections, beats, blocks, image prompts)
-  Image worker: prompt -> PNG -> storage
-  Persistence: boards, blocks, transcripts
+  Brain adapter:   claude-code-headless (default) | api-key | ollama
+  Planner:         Fable via Claude Code -> lesson plan JSON
+  Image adapter:   gemini-flash-image (default) | gpt-image-1 | flux-schnell
+  Voice adapters:  STT faster-whisper | deepgram.  TTS kokoro | elevenlabs
+  Context folding: summarise older turns so the live prompt stays small
+  Persistence:     SQLite (boards, blocks, transcript, images on disk)
 ```
+
+Every provider sits behind an adapter interface. Swapping is one file.
 
 ### 1. The board is a document, not a canvas
 
@@ -136,7 +155,7 @@ Block schema (JSON, persisted):
 type Block =
   | { id: string; type: "html";  column: number; html: string }
   | { id: string; type: "svg";   column: number; svg: string; width: 300; height: 200 }
-  | { id: string; type: "image"; column: number; url?: string; prompt: string; status: "pending" | "ready" }
+  | { id: string; type: "image"; column: number; url?: string; prompt: string; status: "pending" | "ready" | "failed" }
   | { id: string; type: "annotation"; target: string; kind: "highlight" | "circle" | "underline"; match: string; color?: string }
 ```
 
@@ -151,6 +170,9 @@ Client responsibilities:
 - Annotations: find the text range in the target block, measure its client
   rects, draw the overlay in the block's coordinate space, animate with
   `stroke-dashoffset`.
+- Image placeholder: a soft animated dot cloud at 528 by 288 while
+  `status` is pending, exactly as the real product does. Speech never waits
+  for an image.
 - "Follow tutor": pan to the newest block unless the user has moved the camera
   in the last few seconds.
 
@@ -167,33 +189,50 @@ client:
 3. Wrap geometry in a group with a shared `feTurbulence` filter.
 4. Keep `<text>` in a separate, unfiltered group.
 
-Charts: let the model emit the same SVG. A chart spec with D3 is cleaner but
-the DOM shows plain SVG works and keeps one code path.
-
 ### 3. Images
 
 Style suffix on every prompt for consistency:
 "hand-drawn pencil sketch, soft watercolor wash, white background, labelled".
 
-| Model | Latency | Legible text in image |
+| Backend | Expected latency | Legible text in image | Cost |
+|---|---|---|---|
+| Gemini 2.5 Flash Image (default) | 5 to 10 s | Decent | Free tier at low volume |
+| gpt-image-1 (flag) | 10 to 20 s | Best | About 4 to 8 cents at medium quality |
+| Flux Schnell on fal.ai (flag) | 1 to 2 s | No | Under 1 cent |
+
+Rules:
+
+- Planner emits image prompts up front. Generation starts the moment the plan
+  exists, before the tutor says a word.
+- Runtime images (a question that needs a picture) fire on `show_image`,
+  render a placeholder immediately, and fill in when ready.
+- Images are the one piece that needs an API key even when self-hosting.
+  There is no subscription path for image APIs.
+- A `bench:images` script times each backend on five standard prompts so the
+  default choice is measured, not guessed.
+
+### 4. Brain: Claude Code headless
+
+The tutor server keeps one long-running `claude -p` session per lesson,
+using stream-json input and output so there is no cold start per turn.
+Tools are exposed through an MCP server the tutor process hosts. That
+bills to your Claude plan and is you using Claude Code on your own machine.
+
+- Planning: Fable. One call, returns the lesson plan JSON below.
+- Live turns: pick per plan. Opus 5.5 for quality, Sonnet 5.5 if turns feel slow.
+- Rate limits: a 30-minute lesson is dozens of turns. Fine on Max, tight on Pro.
+- `api-key` adapter uses the Claude API directly for anyone who prefers it.
+- `ollama` adapter for a fully offline brain at lower quality.
+
+Do not use the Agent SDK with subscription credentials. Anthropic documents
+the SDK as API-billed. The CLI is the supported path.
+
+### 5. Voice
+
+| Stage | Local default | Hosted option |
 |---|---|---|
-| Flux Schnell (fal.ai) | 1 to 2 s | No |
-| Gemini 2.5 Flash Image | 3 to 6 s | Decent |
-| gpt-image-1 | 10 to 20 s | Yes |
-
-Pre-generate during planning. Show a dashed placeholder sized 528 by 288
-while a runtime image loads. Store in Supabase Storage (or local disk in
-dev) keyed `<timestamp>-<block_id>.png`, exactly as the real product does.
-
-### 4. Voice
-
-Match the real product: a cascade.
-
-- STT: Deepgram Nova (streaming, endpointing, language allowlist).
-- Text model: Claude Sonnet 5.5 with tools for board actions. Opus 5.5 as an
-  optional flag for planning depth.
-- TTS: ElevenLabs or Cartesia, both return word timestamps for captions.
-- Orchestration: LiveKit Agents or Pipecat, both handle barge-in.
+| Speech-to-text | faster-whisper | Deepgram Nova |
+| Text-to-speech | Kokoro | ElevenLabs or Cartesia (word timings built in) |
 
 Interruption rules:
 
@@ -203,12 +242,12 @@ Interruption rules:
   model knows what was heard.
 - Pass the user's selected or pointed-at block id as context.
 
-Speech-to-speech (OpenAI Realtime, Gemini Live) remains a valid shortcut for
-a prototype. It loses word-level captions and voice choice.
+Captions: Kokoro gives phoneme timings, enough for spoken versus upcoming
+word styling. Hosted TTS gives exact word timestamps.
 
-### 5. Lesson planning
+### 6. Lesson planning
 
-Before the session, one planning call turns topic plus attachments into:
+Before the session, one Fable call turns topic plus attachments into:
 
 ```json
 {
@@ -219,46 +258,53 @@ Before the session, one planning call turns topic plus attachments into:
 }
 ```
 
-Image generation starts immediately. The plan is injected into the tutor
-model's system prompt. The tutor teaches section by section and calls tools
+Image generation starts immediately. The plan is injected into the live
+tutor's system prompt. The tutor teaches section by section and calls tools
 as it goes. Questions extend the board with `write_block`.
 
-### 6. Persistence
+Context folding: every N turns, summarise older transcript into a short
+"so far" note and drop the raw turns, the way the real product's
+`collapse-context` call does.
 
-Day one: SQLite behind a small board API (boards, blocks, transcript turns).
-Product: Supabase Postgres with the same API, plus Storage and auth.
-Revisiting a board is reloading the block list and transcript.
+### 7. Persistence
+
+SQLite with three tables: boards, blocks, turns. Images saved to
+`data/images/<timestamp>-<block_id>.png`. Revisiting a board is reloading
+the block list and transcript. Supabase is a later swap if anyone wants
+multi-device sync.
 
 ### Stack
 
-Next.js, React, TypeScript, Tailwind. rough.js, KaTeX. Node tutor service on
-Fly or Railway. Claude for planning and board content. fal.ai for images.
-Deepgram and ElevenLabs for voice. SQLite then Supabase.
+Next.js, React, TypeScript, Tailwind. rough.js, KaTeX. Node tutor service
+on localhost. Claude Code headless for planning and tutoring. Gemini Flash
+Image for pictures. faster-whisper and Kokoro for voice. SQLite.
 
 ### Build order
 
-0. Repo scaffold, lint, test, CI.
+0. Repo scaffold, lint, test, `pnpm dev` starts both web and tutor server.
 1. Block schema, board renderer (pan, zoom, columns, handwriting font,
-   streaming reveal, KaTeX), SVG roughening, annotation overlays. Driven by a
-   fixture lesson with no network calls. Proves the look.
-2. Text model drives the board through tools over a websocket. Typed chat only.
-3. Planner, image pre-generation, placeholders, storage.
-4. Voice cascade with barge-in, word-timed captions, transcript truncation.
-5. Persistence, board history sidebar, revisit, PDF export.
-6. Polish: avatar, follow-tutor camera, mobile, settings, speech speed.
+   streaming reveal, KaTeX), SVG roughening, annotations, image placeholder.
+   Driven by a fixture lesson with no network calls. Proves the look.
+2. Brain adapter over Claude Code headless drives the board through tools.
+   Typed chat only. Context folding.
+3. Planner with Fable, image adapter with Gemini default, parallel
+   pre-generation, `bench:images`.
+4. Voice cascade with barge-in, captions, transcript truncation.
+5. Board history, revisit, PDF export.
+6. Polish: avatar, follow-tutor camera, settings, speech speed.
 
 | Milestone | Solo dev with AI help |
 |---|---|
 | Phases 0 and 1 | one weekend |
-| Through phase 2 | 2 to 3 weeks |
+| Through phase 3 | 2 to 3 weeks |
 | Through phase 6 | 2 to 3 months |
-| Runtime cost per tutoring minute | about $0.10 to $0.30, mostly voice |
+| Running cost | Subscriptions you already have, plus cents per image |
 
-### Cost control while building
+### Keys needed
 
-- Phases 0 to 2 need no paid keys: fixture lesson, then a Claude key only.
-- Demo mode replays a fixture lesson with recorded audio and no network.
-- Gemini free tier covers Live voice and Flash image at low volume.
-- Local options with no keys: Whisper for STT, Kokoro for TTS.
-- Consumer subscriptions (Claude plan, ChatGPT Plus) cover the coding tools,
-  not the running app. The product must use API keys.
+| Piece | Key | Free path |
+|---|---|---|
+| Brain | None (Claude plan via Claude Code) | Yes |
+| Images | Gemini API key | Free tier |
+| Voice | None with local engines | Yes |
+| Storage | None | Yes |
