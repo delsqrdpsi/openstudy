@@ -158,3 +158,42 @@ function noiseFilter(id: string): SVGDefsElement {
     </filter>`;
   return defs;
 }
+
+/**
+ * Animated SVG written by the tutor (@motion): shown as drawn, with SMIL
+ * animation kept and anything executable or external stripped.
+ */
+const MOTION_ALLOWED = new Set([
+  "svg", "g", "defs", "line", "rect", "circle", "ellipse", "polyline", "polygon", "path", "text", "tspan", "title",
+  "animate", "animatetransform", "animatemotion", "mpath", "set", "lineargradient", "radialgradient", "stop", "clippath", "mask", "use", "style",
+]);
+const MOTION_BAD_ATTR = /^(on|xlink:href|href|xmlns:xlink)$/i;
+
+export function motionSvg(svgText: string): string {
+  const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
+  const root = doc.documentElement;
+  if (root.nodeName !== "svg") return "";
+  const walk = (el: Element) => {
+    for (const child of Array.from(el.children)) {
+      const name = child.nodeName.toLowerCase();
+      if (!MOTION_ALLOWED.has(name)) {
+        child.remove();
+        continue;
+      }
+      for (const a of Array.from(child.attributes)) {
+        if (MOTION_BAD_ATTR.test(a.name)) child.removeAttribute(a.name);
+        else if (name === "use" && a.name === "href" && !a.value.startsWith("#")) child.removeAttribute(a.name);
+        else if (a.name === "font-family") child.setAttribute("font-family", "var(--wb-font-head)");
+      }
+      if (name === "style" && /url\(|@import|expression/i.test(child.textContent ?? "")) child.remove();
+      else walk(child);
+    }
+  };
+  for (const a of Array.from(root.attributes)) if (MOTION_BAD_ATTR.test(a.name)) root.removeAttribute(a.name);
+  walk(root);
+  root.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  if (!root.getAttribute("viewBox")) root.setAttribute("viewBox", "0 0 300 200");
+  root.removeAttribute("width");
+  root.removeAttribute("height");
+  return new XMLSerializer().serializeToString(root);
+}

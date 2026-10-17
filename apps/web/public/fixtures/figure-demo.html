@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Reward meter</title>
+<style>
+  body{margin:0;font-family:Inter,system-ui,sans-serif;background:#fff;color:#1f2a37;display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px}
+  svg{width:100%;max-width:520px}
+  input{width:60%}
+  .r{font-size:13px;color:#4b5563}
+</style></head>
+<body>
+<svg viewBox="0 0 520 180" aria-label="reward meter">
+  <rect x="30" y="40" width="460" height="24" rx="12" fill="#eef0ee" stroke="#1f2a37" stroke-width="1.5"/>
+  <rect id="bar" x="30" y="40" width="230" height="24" rx="12" fill="#0f9d8a"/>
+  <g id="needle" transform="translate(260 120)">
+    <line x1="0" y1="0" x2="0" y2="-40" stroke="#e4572e" stroke-width="4" stroke-linecap="round"/>
+    <circle r="6" fill="#1f2a37"/>
+  </g>
+  <text x="30" y="30" font-size="13" fill="#4b5563">fall</text>
+  <text x="490" y="30" font-size="13" fill="#4b5563" text-anchor="end">cookie</text>
+  <text id="val" x="260" y="160" font-size="16" text-anchor="middle" fill="#1f2a37">reward 0.0</text>
+</svg>
+<input id="s" type="range" min="-1" max="1" step="0.01" value="0" aria-label="reward">
+<div class="r">Drag to see how the agent's reward signal maps onto the meter. Negative is still a signal.</div>
+<script>
+  const s=document.getElementById('s'),bar=document.getElementById('bar'),val=document.getElementById('val'),needle=document.getElementById('needle');
+  let target=0,cur=0;
+  s.addEventListener('input',()=>{target=parseFloat(s.value)});
+  function tick(){cur+=(target-cur)*0.12;bar.setAttribute('width',(230+cur*230).toFixed(1));needle.setAttribute('transform','translate(260 120) rotate('+(cur*60).toFixed(1)+')');val.textContent='reward '+cur.toFixed(2);requestAnimationFrame(tick)}
+  tick();
+</script>
+</body></html>

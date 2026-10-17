@@ -9,7 +9,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vitest run",
-    "bench:images": "tsx --env-file-if-exists=../../.env src/images/bench.ts"
+    "bench:images": "tsx --env-file-if-exists=../../.env src/images/bench.ts",
+    "figures:seed": "tsx src/figures/cli.ts seed",
+    "figures:import": "tsx src/figures/cli.ts import",
+    "figures:list": "tsx src/figures/cli.ts"
   },
   "dependencies": {
     "@openstudy/shared": "workspace:*",

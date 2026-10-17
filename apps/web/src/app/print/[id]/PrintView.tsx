@@ -6,6 +6,7 @@ import { TUTOR_HTTP } from "@/board/useLiveSession";
 import { HtmlBlock } from "@/board/blocks/HtmlBlock";
 import { SvgBlock } from "@/board/blocks/SvgBlock";
 import { ImageBlock } from "@/board/blocks/ImageBlock";
+import { EmbedBlock } from "@/board/blocks/EmbedBlock";
 
 const ResponseSchema = z.object({
   board: z.object({ id: z.string(), title: z.string(), topic: z.string(), updatedAt: z.number() }),
@@ -72,7 +73,7 @@ export function PrintView({ id }: { id: string }) {
         <section key={ci} className="wb-column">
           {blocks.map((b) => (
             <div key={b.id} className="wb-block">
-              {b.type === "html" ? <HtmlBlock block={b} writing={false} /> : b.type === "svg" ? <SvgBlock block={b} /> : <ImageBlock block={b} />}
+              {b.type === "html" ? <HtmlBlock block={b} writing={false} /> : b.type === "svg" ? <SvgBlock block={b} /> : b.type === "image" ? <ImageBlock block={b} /> : <EmbedBlock block={b} />}
             </div>
           ))}
         </section>

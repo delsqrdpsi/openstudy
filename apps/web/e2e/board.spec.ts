@@ -13,6 +13,9 @@ test("fixture lesson renders the whole board", async ({ page }) => {
   await expect(page.locator('[data-item-id="loop_sketch"] img')).toBeVisible();
   await expect(page.locator('[data-item-id="loop"] svg path')).toHaveCount(1);
   await expect(page.locator('[data-item-id="perf_chart"] [data-wb="geometry"] path').first()).toBeVisible();
+  // Animated svg is kept as drawn, with its SMIL animation; the model is framed.
+  await expect(page.locator('[data-item-id="balance_motion"] animateTransform')).toHaveCount(1);
+  await expect(page.locator('[data-item-id="demo_model"] iframe')).toHaveAttribute("src", "/fixtures/figure-demo.html");
   await page.getByLabel("Fit board").click();
   await page.waitForTimeout(600);
   await page.screenshot({ path: "test-results/board-finished.png" });

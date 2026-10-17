@@ -167,6 +167,27 @@ s.at(0)
     "<b>Policy:</b> the rule that maps what you sense to what you do. $\\pi(a \\mid s)$. RL improves the policy, not a recording of moves.",
   )
   .wait(500)
+  .say("One more thing before we move on. Here is the balance loop as a moving picture, and a model you can poke at.")
+  .add({
+    id: "balance_motion",
+    type: "svg",
+    column: 2,
+    width: 300,
+    height: 200,
+    motion: true,
+    caption: "Tip, sense, steer, repeat.",
+    svg:
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 200">' +
+      '<line x1="40" y1="170" x2="260" y2="170" stroke="#1f2a37" stroke-width="2"/>' +
+      '<g transform="translate(150 170)"><g>' +
+      '<animateTransform attributeName="transform" type="rotate" values="-14;14;-14" dur="2.4s" repeatCount="indefinite"/>' +
+      '<line x1="0" y1="0" x2="0" y2="-110" stroke="#e4572e" stroke-width="4" stroke-linecap="round"/>' +
+      '<circle cx="0" cy="-118" r="12" fill="#0f9d8a"/></g></g>' +
+      '<text x="150" y="192" font-size="13" text-anchor="middle" fill="#1f2a37">the policy keeps correcting</text>' +
+      "</svg>",
+  })
+  .add({ id: "demo_model", type: "embed", column: 2, src: "/fixtures/figure-demo.html", title: "Reward meter", caption: "An interactive model. Drag the slider.", height: 300 })
+  .wait(1500)
   .say("Want to go back to the plan? Next up is how the reward actually gets turned into learning. Or we can stay on the bike a bit longer.")
   .write("outline", 3, "<h3>Plan</h3>1. What RL is ✓<br>2. Three ways to learn ✓<br>3. The bike example ✓<br>4. From reward to learning<br>5. Where it breaks");
 

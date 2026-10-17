@@ -6,6 +6,7 @@ import { useViewport } from "./useViewport";
 import { HtmlBlock } from "./blocks/HtmlBlock";
 import { SvgBlock } from "./blocks/SvgBlock";
 import { ImageBlock } from "./blocks/ImageBlock";
+import { EmbedBlock } from "./blocks/EmbedBlock";
 import { AnnotationLayer } from "./blocks/AnnotationLayer";
 
 export interface BoardHandle {
@@ -167,5 +168,7 @@ function BlockView({ block, writing }: { block: ContentBlock; writing: boolean }
       return <SvgBlock block={block} />;
     case "image":
       return <ImageBlock block={block} />;
+    case "embed":
+      return <EmbedBlock block={block} />;
   }
 }

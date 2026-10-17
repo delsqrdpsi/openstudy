@@ -27,6 +27,19 @@ export const SvgBlockSchema = z.object({
   height: z.number().int().positive().default(200),
   /** Optional caption rendered under the diagram in handwriting. */
   caption: z.string().optional(),
+  /** Animated SVG (SMIL or CSS): rendered as written, not redrawn by hand. */
+  motion: z.boolean().optional(),
+});
+
+/** A self-contained interactive page (an Anatomy figure) shown in a sandboxed frame. */
+export const EmbedBlockSchema = z.object({
+  id: BlockIdSchema,
+  type: z.literal("embed"),
+  column: z.number().int().min(0).max(7),
+  src: z.string().min(1),
+  title: z.string().optional(),
+  caption: z.string().optional(),
+  height: z.number().int().positive().default(420),
 });
 
 export const ImageStatusSchema = z.enum(["pending", "ready", "failed"]);
@@ -60,12 +73,14 @@ export const BlockSchema = z.discriminatedUnion("type", [
   HtmlBlockSchema,
   SvgBlockSchema,
   ImageBlockSchema,
+  EmbedBlockSchema,
   AnnotationBlockSchema,
 ]);
 
 export type HtmlBlock = z.infer<typeof HtmlBlockSchema>;
 export type SvgBlock = z.infer<typeof SvgBlockSchema>;
 export type ImageBlock = z.infer<typeof ImageBlockSchema>;
+export type EmbedBlock = z.infer<typeof EmbedBlockSchema>;
 export type AnnotationBlock = z.infer<typeof AnnotationBlockSchema>;
 export type Block = z.infer<typeof BlockSchema>;
 export type ContentBlock = Exclude<Block, AnnotationBlock>;
