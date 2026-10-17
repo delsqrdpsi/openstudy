@@ -7,12 +7,17 @@ import { Session } from "./session";
 import { Store } from "./store";
 import { listFigures, readFigureFile } from "./figures";
 import { listJobs } from "./figures/builder";
+import { bridgeTranscription, SAMPLE_RATE, speak, voiceConfig, VoiceError } from "./voice/deepgram";
 import { log } from "./log";
 
 const PORT = Number(process.env.TUTOR_PORT ?? 8787);
+
+// One failed picture or model call must never take the server down with every lesson on it.
+process.on("unhandledRejection", (err) => log.error("unhandled rejection:", err instanceof Error ? err.message : err));
+process.on("uncaughtException", (err) => log.error("uncaught exception:", err.message));
 const store = new Store();
 
-const CORS = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, DELETE, OPTIONS", "access-control-allow-headers": "content-type" };
+const CORS = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST, DELETE, OPTIONS", "access-control-allow-headers": "content-type" };
 const json = (res: import("node:http").ServerResponse, status: number, body: unknown) => {
   res.writeHead(status, { "content-type": "application/json", ...CORS });
   res.end(JSON.stringify(body));
@@ -26,7 +31,12 @@ const http = createServer((req, res) => {
     return;
   }
   if (url.pathname === "/health") {
-    return json(res, 200, { ok: true, brain: process.env.BRAIN ?? "claude-code", images: process.env.IMAGES ?? (process.env.GEMINI_API_KEY ? "gemini" : "none") });
+    return json(res, 200, { ok: true, brain: process.env.BRAIN ?? "claude-code", images: process.env.IMAGES ?? (process.env.GEMINI_API_KEY ? "gemini" : "none"), voice: voiceConfig().provider });
+  }
+  if (url.pathname === "/voice" && req.method === "GET") return json(res, 200, voiceConfig());
+  if (url.pathname === "/tts" && req.method === "POST") {
+    void streamSpeech(req, res);
+    return;
   }
   if (url.pathname === "/boards" && req.method === "GET") return json(res, 200, store.listBoards());
   if (url.pathname === "/figures" && req.method === "GET") return json(res, 200, { figures: listFigures(), jobs: listJobs() });
@@ -63,7 +73,47 @@ const http = createServer((req, res) => {
   res.end();
 });
 
-const wss = new WebSocketServer({ server: http, path: "/ws" });
+/** POST /tts {text}: the line as streamed PCM, for the browser to play as it arrives. */
+async function streamSpeech(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) {
+  let body = "";
+  for await (const chunk of req) {
+    body += chunk;
+    if (body.length > 20000) return json(res, 413, { error: "too long" });
+  }
+  let text: string;
+  try {
+    text = String((JSON.parse(body) as { text?: unknown }).text ?? "");
+  } catch {
+    return json(res, 400, { error: "bad json" });
+  }
+  const abort = new AbortController();
+  req.on("close", () => abort.abort());
+  try {
+    const up = await speak(text, abort.signal);
+    res.writeHead(200, { "content-type": "audio/l16", "x-sample-rate": String(SAMPLE_RATE), "cache-control": "no-store", ...CORS });
+    for await (const chunk of up.body as unknown as AsyncIterable<Uint8Array>) {
+      if (abort.signal.aborted) break;
+      res.write(chunk);
+    }
+    res.end();
+  } catch (err) {
+    if (abort.signal.aborted) return;
+    const status = err instanceof VoiceError ? err.status : 502;
+    log.warn("tts failed:", err instanceof Error ? err.message : err);
+    if (!res.headersSent) json(res, status, { error: err instanceof Error ? err.message : String(err) });
+    else res.end();
+  }
+}
+
+// Two websocket paths on one server: /ws for the lesson, /stt for the student's microphone.
+const wss = new WebSocketServer({ noServer: true });
+const stt = new WebSocketServer({ noServer: true });
+http.on("upgrade", (req, socket, head) => {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  if (url.pathname === "/ws") wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+  else if (url.pathname === "/stt") stt.handleUpgrade(req, socket, head, (ws) => bridgeTranscription(ws, url.searchParams));
+  else socket.destroy();
+});
 
 wss.on("connection", (ws: WebSocket) => {
   let session: Session | null = null;
@@ -120,4 +170,4 @@ wss.on("connection", (ws: WebSocket) => {
   });
 });
 
-http.listen(PORT, () => log.info(`tutor server on http://localhost:${PORT} (ws at /ws)`));
+http.listen(PORT, () => log.info(`tutor server on http://localhost:${PORT} (ws at /ws, voice: ${voiceConfig().provider})`));

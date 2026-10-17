@@ -1,10 +1,11 @@
+import { dataDir } from "../paths";
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 
 /** Generated images live on disk and are served by the tutor's http server. */
 export class ImageStore {
   readonly dir: string;
-  constructor(dir = process.env.DATA_DIR ?? resolve(process.cwd(), "../../data")) {
+  constructor(dir = dataDir()) {
     this.dir = join(dir, "images");
     mkdirSync(this.dir, { recursive: true });
   }

@@ -14,6 +14,8 @@ export interface TurnResult {
   /** "aborted" when the student interrupted; "error" carries a message. */
   status: "ok" | "aborted" | "error";
   message?: string;
+  /** The continuation handle no longer resolves (for example the CLI session file is gone). */
+  lostSession?: boolean;
   /** Whatever the brain wants to report (cost, tokens). */
   meta?: Record<string, unknown>;
 }
@@ -24,5 +26,7 @@ export interface Brain {
   /** Opaque continuation handle, persisted so a lesson can be resumed. */
   readonly session: string | null;
   turn(input: TurnInput): Promise<TurnResult>;
+  /** Drop the continuation handle so the next turn starts a fresh conversation. */
+  forget?(): void;
   close(): void;
 }

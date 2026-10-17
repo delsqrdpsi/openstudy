@@ -40,6 +40,7 @@ export function sketchSvg(svgText: string, opts: SketchOptions = {}): string {
   }
   geom.setAttribute("data-wb", "geometry");
   text.setAttribute("data-wb", "text");
+  text.setAttribute("data-fade", "");
 
   walk(src, geom, text, rc);
   out.appendChild(geom);

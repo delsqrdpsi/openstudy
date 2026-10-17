@@ -5,6 +5,8 @@ import type { BoardState, TurnState } from "@openstudy/shared";
 import { Board, type BoardHandle } from "./Board";
 import type { TranscriptEntry } from "@/lib/transcript";
 
+const PANEL_KEY = "openstudy.chatPanel";
+
 interface Props {
   title: string;
   state: BoardState;
@@ -37,6 +39,28 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
   const onScale = useCallback((s: number) => setScale(s), []);
   const listRef = useRef<HTMLDivElement>(null);
 
+  // Chat panel: remember the last choice; first visit on a narrow window starts collapsed.
+  useEffect(() => {
+    let saved: string | null = null;
+    try {
+      saved = window.localStorage.getItem(PANEL_KEY);
+    } catch {
+      /* storage unavailable */
+    }
+    // Reads browser-only state once after hydration, so the server and first client render agree.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (saved === "0" || saved === "1") setPanel(saved === "1");
+    else if (window.innerWidth < 960) setPanel(false);
+  }, []);
+  const showPanel = (on: boolean) => {
+    setPanel(on);
+    try {
+      window.localStorage.setItem(PANEL_KEY, on ? "1" : "0");
+    } catch {
+      /* storage unavailable */
+    }
+  };
+
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [transcript]);
@@ -57,7 +81,7 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
         <Board ref={board} state={state} writingId={writingId} follow={follow} onScaleChange={onScale} />
 
         {/* top bar */}
-        <div className="pointer-events-none absolute left-4 right-4 top-4 z-20 flex items-start justify-between gap-3">
+        <div className="pointer-events-none absolute left-4 right-4 top-4 z-20 flex flex-wrap items-start justify-between gap-3">
           <div className="ui-card pointer-events-auto flex items-center gap-1 p-1 pr-3">
             <Link href="/" className="ui-btn" aria-label="Close lesson" title="Back to start">
               ✕
@@ -80,11 +104,25 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
             <button className={`ui-btn${follow ? " is-on" : ""}`} onClick={() => setFollow((f) => !f)} title="Camera follows the tutor">
               Follow
             </button>
-            <button className={`ui-btn${panel ? " is-on" : ""}`} onClick={() => setPanel((p) => !p)} aria-label="Toggle chat history" title="Chat history">
+            <button className={`ui-btn${panel ? " is-on" : ""}`} onClick={() => showPanel(!panel)} aria-label="Toggle chat history" title={panel ? "Hide chat history" : "Show chat history"} aria-expanded={panel}>
               ☰
             </button>
           </div>
         </div>
+
+        {/* collapsed chat panel: tab on the right edge to reopen it */}
+        {!panel && (
+          <button
+            className="ui-card pointer-events-auto absolute right-0 top-1/2 z-20 flex -translate-y-1/2 items-center gap-1.5 rounded-r-none px-2.5 py-2 text-[12px] font-medium text-neutral-600 hover:text-[var(--ink)]"
+            onClick={() => showPanel(true)}
+            aria-label="Show chat history"
+            title="Show chat history"
+          >
+            <span aria-hidden>‹</span>
+            <span>Chat</span>
+            {transcript.length > 0 && <span className="rounded-full bg-neutral-100 px-1.5 text-[11px] tabular-nums text-neutral-500">{transcript.length}</span>}
+          </button>
+        )}
 
         {/* keypoints */}
         {state.sections.length > 0 && (
@@ -161,11 +199,14 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
       {/* chat history */}
       {panel && (
         <aside className="flex w-[360px] shrink-0 flex-col border-l border-[var(--panel-border)] bg-[var(--panel)]">
-          <header className="flex items-center justify-between px-5 py-4">
+          <header className="flex items-center justify-between py-3 pl-5 pr-3">
             <h2 className="text-[15px] font-semibold">Chat history</h2>
             <span className="flex items-center gap-2 text-[12px] text-neutral-500">
               {busy && <span className="ui-pulse" />}
               {turn === "thinking" ? "thinking" : turn === "speaking" ? "teaching" : turn === "waiting" ? "your turn" : turn === "done" ? "lesson complete" : ""}
+              <button className="ui-btn ml-1" onClick={() => showPanel(false)} aria-label="Hide chat history" title="Hide chat history">
+                ›
+              </button>
             </span>
           </header>
           <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-5 pb-6">
