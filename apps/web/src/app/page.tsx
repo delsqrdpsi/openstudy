@@ -139,19 +139,19 @@ export default function Home() {
           {skipped.length > 0 && <p className="px-2 pb-2 text-[12px] text-neutral-500">Skipped (images and scanned PDFs are not read yet): {skipped.join(", ")}</p>}
           <div className="flex items-center justify-between gap-2 border-t border-neutral-100 pt-2">
             <div className="flex items-center gap-1">
-              <label className="ui-btn cursor-pointer" title="Attach notes or text files">
+              <label className="ui-btn shrink-0 cursor-pointer whitespace-nowrap" title="Attach notes or text files">
                 + Add files
                 <input type="file" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} accept=".pdf,.txt,.md,.markdown,.csv,.json,.py,.js,.ts,.html,application/pdf,text/*" />
               </label>
-              <select className="ui-btn bg-transparent" value={model} onChange={(e) => setChosenModel(e.target.value)} aria-label="Model">
+              <select className="ui-btn bg-transparent" value={model} onChange={(e) => setChosenModel(e.target.value)} aria-label="Model" title={models.find((m) => m.id === model)?.description}>
                 {models.map((m) => (
-                  <option key={m.id} value={m.id}>
+                  <option key={m.id} value={m.id} title={m.description}>
                     {m.label}
                   </option>
                 ))}
               </select>
             </div>
-            <button className="ui-btn primary px-4" onClick={start} disabled={reading > 0 || scanning !== "idle" || (!topic.trim() && materials.length === 0 && sources.length === 0)}>
+            <button className="ui-btn primary shrink-0 whitespace-nowrap px-4" onClick={start} disabled={reading > 0 || scanning !== "idle" || (!topic.trim() && materials.length === 0 && sources.length === 0)}>
               Start lesson ↵
             </button>
           </div>

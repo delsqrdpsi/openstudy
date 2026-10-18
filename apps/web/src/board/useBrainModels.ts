@@ -5,6 +5,7 @@ import { TUTOR_HTTP } from "./useLiveSession";
 export interface ModelChoice {
   id: string;
   label: string;
+  description?: string;
   default?: boolean;
 }
 

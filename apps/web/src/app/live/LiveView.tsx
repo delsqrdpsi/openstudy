@@ -278,7 +278,7 @@ export function LiveView() {
             )}
           </div>
           {live.info && (
-            <span className="ui-card flex items-center gap-1 py-1 pl-1 pr-1 text-[12px] text-neutral-500">
+            <span className="ui-card flex items-center gap-1 whitespace-nowrap py-1 pl-1 pr-3 text-[12px] text-neutral-500">
               <UsageBadge usage={live.usage} contextWindow={live.usage?.tutor.contextWindow ?? (live.info.model === "sonnet" ? 1_000_000 : 200_000)} />
               {live.info.brain} ·
               <select

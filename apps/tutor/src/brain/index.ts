@@ -47,6 +47,8 @@ export function sanitizeModel(model: string | undefined): string | undefined {
 export interface ModelChoice {
   id: string;
   label: string;
+  /** A longer line about the model, shown on hover. */
+  description?: string;
   default?: boolean;
 }
 

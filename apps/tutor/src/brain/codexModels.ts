@@ -28,7 +28,8 @@ async function load(): Promise<ModelChoice[]> {
     const shown = r.data.filter((m) => !m.hidden);
     return shown.map((m) => ({
       id: m.id,
-      label: `${m.displayName} (${m.description.replace(/\.$/, "")})`,
+      label: m.displayName,
+      description: m.description,
       default: preferred ? m.id === preferred : m.isDefault,
     }));
   } finally {
