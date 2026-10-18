@@ -125,11 +125,15 @@ export class CourseIndex {
     if (existsSync(cache)) return readFileSync(cache, "utf8");
     let text: string;
     if (it.kind === "file") {
-      if (!READABLE_FILE.test(it.name) && !/pdf|text\//.test(it.contentType ?? "")) return null;
+      // A module item often carries just a title ("Lecture 4 slides") and the Files tab may be hidden,
+      // so the type is only known for sure once the file's own record is fetched.
+      const readable = (name: string, type: string | undefined) => READABLE_FILE.test(name) || /pdf|text\/|html|json/i.test(type ?? "");
+      if (it.contentType && !readable(it.name, it.contentType)) return null;
       if ((it.size ?? 0) > MAX_FILE_BYTES) return null;
       const f = await this.client.file(it.id);
+      if (!readable(it.name, f.type) && !readable(f.name, f.type)) return null;
       const bytes = new Uint8Array(await f.body.arrayBuffer());
-      text = /pdf/i.test(f.type) || /\.pdf$/i.test(it.name) ? await pdfText(bytes) : /html/i.test(f.type) ? htmlToText(Buffer.from(bytes).toString("utf8")) : Buffer.from(bytes).toString("utf8");
+      text = /pdf/i.test(f.type) || /\.pdf$/i.test(f.name) ? await pdfText(bytes) : /html/i.test(f.type) ? htmlToText(Buffer.from(bytes).toString("utf8")) : Buffer.from(bytes).toString("utf8");
     } else {
       text = (await this.client.text(this.courseId, it.kind, it.id)).text;
     }
