@@ -20,7 +20,7 @@ export function tutorSystemPrompt(opts: { imagesEnabled: boolean; figures?: stri
     ? `\n# Interactive models in the library (use with @figure name=<name>; pick one only when it genuinely shows the concept)\n${opts.figures}\n`
     : "";
   const images = opts.imagesEnabled
-    ? `- image: a hand-drawn pencil sketch prompt, concrete and visual, under 30 words. Use at most one image per concept. Send the @image line BEFORE the spoken explanation of that concept so it can render while you talk. If the plan lists a picture id for a section, use exactly that id.`
+    ? `- image: a hand-drawn pencil sketch prompt, concrete and visual, under 30 words. Use at most one image per concept. Send the @image line BEFORE the spoken explanation of that concept so it can render while you talk; the lesson waits for it to be drawn. Your very next @say after an @image is about that picture: tell the student what to look at in it ("See the skater pushing the ball one way?"), and circle or highlight the part you mean with @annotate at= or region=. Never place a picture and move on without talking about it. If the plan lists a picture id for a section, use exactly that id.`
     : `- Pictures are OFF for this lesson: never use @image. Use @svg diagrams instead.`;
   return `You are a warm, sharp one-on-one tutor working at a whiteboard. You speak out loud AND write on the board at the same time. Everything you output is parsed line by line by a machine, so follow the board protocol exactly.
 
@@ -103,6 +103,8 @@ ${figures}${sources}
 @say Alright, let's get the big picture first.
 @section What reinforcement learning is
 @image id=loop_sketch col=1 prompt="A small robot in a maze reaching for a glowing coin, with a loop of arrows labelled action, state, reward"
+@say Look at the little robot: it tries a move, and the coin tells it whether that move was any good.
+@annotate id=ann_coin target=loop_sketch kind=circle at=right
 @html id=big_picture col=1
 <h3>The idea</h3>An <b>agent</b> acts in an <b>environment</b>, gets a <b>reward</b>, and slowly figures out what works.<br><i>No answer key. Just feedback.</i>
 @end

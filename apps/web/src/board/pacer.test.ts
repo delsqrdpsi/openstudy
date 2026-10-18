@@ -117,6 +117,21 @@ describe("Pacer pictures", () => {
     pacer.dispose();
   });
 
+  it("holds the blocks after a drawing picture too, and focuses the picture when it is drawn", () => {
+    const { pacer, applied, spoken, ev } = setup();
+    pacer.push(ev(picture("skater")));
+    pacer.push(ev({ type: "block.add", block: { id: "notes", type: "html", column: 1, html: "" } } as never));
+    pacer.push(ev({ type: "say", text: "See the skater?" }));
+    const landedIds = () => applied.flatMap((i) => (i.kind === "event" && i.event.type === "block.add" ? [i.event.block.id] : []));
+    expect(landedIds()).toEqual(["skater"]);
+    pacer.push(ev({ type: "image.update", id: "skater", status: "ready", url: "/s.png" }));
+    const order = applied.map((i) => (i.kind === "event" ? i.event.type : i.kind));
+    expect(order.indexOf("focus")).toBeGreaterThan(order.indexOf("image.update"));
+    expect(landedIds()).toEqual(["skater", "notes"]);
+    expect(spoken.map((x) => x.text)).toEqual(["See the skater?"]);
+    pacer.dispose();
+  });
+
   it("stops waiting for a picture that takes too long", () => {
     const { pacer, spoken, advance, ev } = setup();
     pacer.push(ev(picture("slow")));

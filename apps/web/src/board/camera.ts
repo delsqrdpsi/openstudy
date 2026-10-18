@@ -36,7 +36,8 @@ export interface FrameOptions {
 export const READ_SCALE = 1;
 /** Zooms within this band count as comfortable and are left alone. */
 export const COMFORT_MIN = 0.85;
-export const COMFORT_MAX = 1.5;
+/** The follow camera does not zoom in past this: enough to read, not so close that context is lost. */
+export const COMFORT_MAX = 1.15;
 /** The follow camera never goes further out than this on its own. */
 export const FOLLOW_MIN = 0.5;
 export const PAD_X = 64;
@@ -51,7 +52,7 @@ export function frameBlock(view: View, cam: Cam, block: Rect, opts: FrameOptions
   const fitW = usableW / Math.max(1, block.w);
 
   const comfortable = cam.scale >= COMFORT_MIN && cam.scale <= COMFORT_MAX;
-  let scale = comfortable ? cam.scale : READ_SCALE;
+  let scale = comfortable ? cam.scale : Math.min(READ_SCALE, COMFORT_MAX);
   scale = Math.max(FOLLOW_MIN, Math.min(scale, fitW));
   const rescale = Math.abs(scale - cam.scale) > 0.01;
 

@@ -30,8 +30,9 @@ const IDLE_BUDGET = 12;
 export const TICK_MS = 50;
 /**
  * The tutor puts a picture up and then talks about it ("See the skater?").
- * While a picture is still being drawn, the next spoken line waits for it,
- * up to this long, so the words never refer to an empty frame.
+ * While a picture is still being drawn, everything after it waits (the next
+ * line, the next blocks, so the camera stays on it), up to this long. When it
+ * is drawn the camera comes back to it before the lesson carries on.
  */
 export const IMAGE_WAIT_MS = 15000;
 
@@ -68,6 +69,7 @@ export class Pacer {
     // board, and the speech queued behind it may be waiting for exactly this.
     if (item.kind === "event" && item.event.type === "image.update") {
       const up = item.event;
+      const heldForIt = this.drawing.has(up.id);
       this.drawing.delete(up.id);
       // Still queued (a pregenerated picture is ready before its frame lands): fold
       // the result into the queued frame so it lands drawn. Otherwise fill it now.
@@ -76,7 +78,11 @@ export class Pacer {
       if (queued && queued.kind === "event" && queued.event.type === "block.add" && queued.event.block.type === "image") {
         const block = queued.event.block;
         this.queue[i] = { kind: "event", event: { ...queued.event, block: { ...block, status: up.status, url: up.url ?? block.url } } };
-      } else this.hooks.apply(item);
+      } else {
+        this.hooks.apply(item);
+        // The lesson was waiting on this picture: look at it before carrying on.
+        if (heldForIt) this.hooks.apply({ kind: "event", event: { type: "focus", id: up.id } });
+      }
       this.drain();
       return;
     }
@@ -173,6 +179,8 @@ export class Pacer {
   private drain() {
     if (this.paused) return;
     while (this.queue.length) {
+      // A picture is still being drawn: nothing after it lands yet.
+      if (this.waitingForPicture()) break;
       const item = this.queue[0];
       if (item.kind === "turn") {
         if ((item.state === "waiting" || item.state === "done") && this.speaking && !this.speaking.ended) break;
@@ -183,7 +191,6 @@ export class Pacer {
       const e = item.event;
       if (e.type === "say") {
         if (this.speaking && !this.speaking.ended) break;
-        if (this.waitingForPicture()) break;
         this.queue.shift();
         this.hooks.apply(item);
         this.startSpeech(e.text);

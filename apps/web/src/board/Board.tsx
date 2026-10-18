@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, forwardRef } from "react";
 import type { AnnotationBlock, BoardState, ContentBlock } from "@openstudy/shared";
-import { DEFAULT_LAYOUT, isContentBlock, layoutColumns } from "@openstudy/shared";
+import { DEFAULT_LAYOUT, focusArea, isContentBlock, layoutColumns } from "@openstudy/shared";
 import { useViewport } from "./useViewport";
 import { HtmlBlock } from "./blocks/HtmlBlock";
 import { SvgBlock } from "./blocks/SvgBlock";
@@ -106,6 +106,21 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ state, writ
 
   const layout = useMemo(() => layoutColumns(content, heights, DEFAULT_LAYOUT), [content, heights]);
 
+  // Frame the area around a block: its section's full width (text and the figures
+  // beside it), level with the block, so the camera never hops between lanes.
+  const frameFocus = useCallback(
+    (id: string) => {
+      const area = focusArea(content, layout, id);
+      const p = layout.placements.get(id);
+      if (!area || !p) return;
+      // A block wider than its lane (a wide table) is measured.
+      const el = targets.get(id);
+      const w = el ? Math.max(area.w, p.x - area.x + el.offsetWidth) : area.w;
+      focusRect(area.x, area.y, w, area.h, writingId === id);
+    },
+    [content, layout, targets, focusRect, writingId],
+  );
+
   // Follow the tutor: frame the block it is writing or pointing at, unless the student just moved the camera.
   const lastFocus = useRef<string | null>(null);
   const lastFocusHeight = useRef(0);
@@ -127,11 +142,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ state, writ
       return;
     }
     pendingFocus.current = false;
-    // Wide blocks (tables, models) are measured; columns are not wider than their blocks.
-    const el = targets.get(state.focusId);
-    const width = el ? Math.max(p.width, el.offsetWidth) : p.width;
-    focusRect(p.x, p.y, width, p.height, writingId === state.focusId);
-  }, [follow, state.focusId, focusKey, layout, focusRect, userMovedRecently, writingId, targets]);
+    frameFocus(state.focusId);
+  }, [follow, state.focusId, focusKey, layout, frameFocus, userMovedRecently]);
 
   // A focus that arrived while the student held the camera is honoured once they let go.
   useEffect(() => {
@@ -141,11 +153,10 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ state, writ
       const p = layout.placements.get(state.focusId);
       if (!p) return;
       pendingFocus.current = false;
-      const el = targets.get(state.focusId);
-      focusRect(p.x, p.y, el ? Math.max(p.width, el.offsetWidth) : p.width, p.height, writingId === state.focusId);
+      frameFocus(state.focusId);
     }, 1000);
     return () => window.clearInterval(t);
-  }, [follow, state.focusId, layout, focusRect, userMovedRecently, writingId, targets]);
+  }, [follow, state.focusId, layout, frameFocus, userMovedRecently]);
 
   useEffect(() => onScaleChange?.(camera.scale), [camera.scale, onScaleChange]);
 
