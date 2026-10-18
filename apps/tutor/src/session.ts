@@ -33,6 +33,9 @@ export class Session {
   state: TurnState = "idle";
   private abort: AbortController | null = null;
   private spoken: string[] = [];
+  /** Words said and written this turn, and diagrams drawn, so a thin board gets called out next turn. */
+  private turnWords = { said: 0, wrote: 0, diagrams: 0 };
+  private boardNudge: string | null = null;
   private queued: string | null = null;
   /** Blocks added this turn, tagged with how many @say lines preceded them. */
   private turnBlocks: { id: string; afterSay: number }[] = [];
@@ -217,6 +220,10 @@ export class Session {
       if (this.state === "thinking") this.setState("speaking");
     }
     if (e.type === "block.add") this.turnBlocks.push({ id: e.block.id, afterSay: this.spoken.length });
+    if (e.type === "say") this.turnWords.said += words(e.text);
+    else if (e.type === "block.append") this.turnWords.wrote += words(e.html.replace(/<[^>]+>/g, " "));
+    else if (e.type === "block.add" && e.block.type === "html") this.turnWords.wrote += words(e.block.html.replace(/<[^>]+>/g, " "));
+    else if (e.type === "block.add" && e.block.type === "svg") this.turnWords.diagrams += 1;
     if (e.type === "block.add" && e.block.type === "image") this.resolveImage(e.block.id, e.block.prompt);
   }
 
@@ -282,14 +289,33 @@ export class Session {
     this.send({ type: "event", event: e });
   }
 
+  /**
+   * The board should carry what was said. When a teaching turn speaks far
+   * more than it writes, the next turn opens with the numbers so the model
+   * corrects course, instead of drifting into a lecture with a bare board.
+   */
+  private checkBoardCoverage() {
+    const { said, wrote, diagrams } = this.turnWords;
+    if (said < 40 || !this.planDelivered) return; // intake and short replies are fine
+    const thin = wrote < said * 0.6;
+    if (!thin) return;
+    log.info(`board thin on ${this.id}: said ${said}, wrote ${wrote}, diagrams ${diagrams}`);
+    this.boardNudge = `[Board check on your last turn: you said ${said} words but wrote only ${wrote}${diagrams ? "" : ", and drew no diagram"}. The board must carry what you say. This turn, put each spoken point on the board as a line, step, formula or table row${diagrams ? "" : ", and draw an @svg diagram of the idea's structure"}.]`;
+  }
+
   private async runTurn(userText: string) {
     if (this.pendingModel) this.applyModel(this.pendingModel);
     this.abort = new AbortController();
     const { signal } = this.abort;
     this.spoken = [];
     this.turnBlocks = [];
+    this.turnWords = { said: 0, wrote: 0, diagrams: 0 };
     this.heard = null;
     this.turns += 1;
+    if (this.boardNudge) {
+      userText = `${this.boardNudge}\n\n${userText}`;
+      this.boardNudge = null;
+    }
     this.setState("thinking");
     let ended: "ask" | "continue" | "done" | null = null;
     let options: string[] | undefined;
@@ -355,6 +381,7 @@ export class Session {
       return;
     }
     if (this.pendingModel) this.applyModel(this.pendingModel);
+    this.checkBoardCoverage();
     if (ended === "continue") {
       this.awaitingContinue = true;
       this.setState("waiting", undefined, true);
@@ -372,6 +399,10 @@ function escapeHtml(s: string): string {
 function titleFrom(topic: string): string {
   const t = topic.replace(/\s+/g, " ").trim();
   return t.length > 60 ? t.slice(0, 57).trimEnd() + "..." : t || "Untitled lesson";
+}
+
+function words(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
 /** The spoken side of a saved log as plain lines, most recent 6000 characters. */
