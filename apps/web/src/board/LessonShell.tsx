@@ -44,6 +44,16 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
   const [follow, setFollow] = useState(true);
   const [panel, setPanel] = useState(true);
   const [draft, setDraft] = useState("");
+  // The left-hand controls' width, so the message box shrinks rather than covering them on a narrow window.
+  const controls = useRef<HTMLDivElement>(null);
+  const [controlsWidth, setControlsWidth] = useState(0);
+  useEffect(() => {
+    const el = controls.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setControlsWidth(el.offsetWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const onScale = useCallback((s: number) => setScale(s), []);
 
   // Chat panel: remember the last choice; first visit on a narrow window starts collapsed.
@@ -79,45 +89,44 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
   const lastTutor = [...transcript].reverse().find((e) => e.kind === "tutor");
   const currentSection = state.sections[state.sections.length - 1];
 
-  // The message box sits at the bottom of the chat panel when it is open, and
-  // on the board's bottom bar when it is not.
-  const composer = (className: string) =>
-    onSay ? (
-      <div className={`pointer-events-auto flex flex-col items-stretch gap-1.5 ${className}`}>
-        {/* Always mounted, so screen readers announce what the mic hears as it changes. */}
-        <div className={hearing ? "ui-card self-end max-w-full truncate px-3 py-1.5 text-[14px] italic text-neutral-600" : "sr-only"} aria-live="polite">
-          {hearing ?? ""}
-        </div>
-        <form
-          className="ui-card flex w-full items-center gap-2 p-1.5 pl-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit(draft);
-          }}
-        >
-          <span className={busy ? "ui-pulse" : "h-2 w-2 rounded-full bg-neutral-300"} aria-hidden />
-          <input
-            className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-neutral-400"
-            placeholder={paused ? "Paused. Type to ask something, or press play" : busy ? "Type to interrupt..." : "Your answer, or a question"}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            aria-label="Message the tutor"
-          />
-          {busy && onInterrupt && (
-            <button type="button" className="ui-btn" onClick={onInterrupt} title="Stop the tutor">
-              ◼
-            </button>
-          )}
-          {inputControls}
-          <button type="submit" className="ui-btn primary" aria-label="Send">
-            ↑
-          </button>
-        </form>
+  // The message box keeps one size and one place, the window's bottom-right
+  // corner, whether or not the chat panel is open; the chat ends just above it.
+  const composer = onSay ? (
+    <div className="pointer-events-auto absolute bottom-4 right-4 z-30 flex flex-col items-stretch gap-1.5" style={{ width: `min(640px, calc(100% - ${controlsWidth + 48}px))` }}>
+      {/* Always mounted, so screen readers announce what the mic hears as it changes. */}
+      <div className={hearing ? "ui-card self-end max-w-full truncate px-3 py-1.5 text-[14px] italic text-neutral-600" : "sr-only"} aria-live="polite">
+        {hearing ?? ""}
       </div>
-    ) : null;
+      <form
+        className="ui-card flex w-full items-center gap-2 p-1.5 pl-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit(draft);
+        }}
+      >
+        <span className={busy ? "ui-pulse" : "h-2 w-2 rounded-full bg-neutral-300"} aria-hidden />
+        <input
+          className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-neutral-400"
+          placeholder={paused ? "Paused. Type to ask something, or press play" : busy ? "Type to interrupt..." : "Your answer, or a question"}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          aria-label="Message the tutor"
+        />
+        {busy && onInterrupt && (
+          <button type="button" className="ui-btn" onClick={onInterrupt} title="Stop the tutor">
+            ◼
+          </button>
+        )}
+        {inputControls}
+        <button type="submit" className="ui-btn primary" aria-label="Send">
+          ↑
+        </button>
+      </form>
+    </div>
+  ) : null;
 
   return (
-    <main className="flex h-full w-full overflow-hidden" data-turn={turn}>
+    <main className="relative flex h-full w-full overflow-hidden" data-turn={turn}>
       <section className="relative min-w-0 flex-1">
         <Board ref={board} state={state} writingId={writingId} follow={follow} onScaleChange={onScale} />
 
@@ -207,8 +216,7 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
             <div className="pointer-events-auto rounded-full bg-[var(--ink)] px-4 py-1.5 text-[13px] font-medium text-white">Lesson paused. Press play to carry on.</div>
           )}
           <div className="flex w-full items-end justify-between gap-3">
-            <div className="pointer-events-auto flex items-center gap-2">{extraControls}</div>
-            {panel ? <span /> : (composer("w-[min(640px,100%)]") ?? <span />)}
+            <div ref={controls} className="pointer-events-auto flex items-center gap-2">{extraControls}</div>
           </div>
           <div role="status" aria-live="polite" className={statusNote ? "pointer-events-auto rounded-full bg-[var(--ink)] px-4 py-1.5 text-[13px] text-white" : "sr-only"}>
             {statusNote ?? ""}
@@ -234,9 +242,11 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
             </span>
           </header>
           <ChatList transcript={transcript} />
-          {onSay && <div className="px-4 pb-4 pt-2">{composer("w-full")}</div>}
+          {/* Room for the message box, so the chat ends just above it. */}
+          {onSay && <div className="h-[76px] shrink-0" aria-hidden />}
         </aside>
       )}
+      {composer}
     </main>
   );
 }
