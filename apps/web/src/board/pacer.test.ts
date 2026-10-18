@@ -165,6 +165,48 @@ describe("Pacer pictures", () => {
     expect(spoken).toHaveLength(1);
     pacer.dispose();
   });
+
+  it("ignores a late `done` from a line that was discarded or flushed", () => {
+    const { pacer, spoken, ev } = setup();
+    pacer.push(ev({ type: "say", text: "One." }));
+    pacer.push(ev({ type: "say", text: "Two." }));
+    pacer.discard();
+    // The voice is stopped after the discard and reports the cut-off line as ended.
+    spoken[0].done();
+    pacer.push(ev({ type: "say", text: "Three." }));
+    expect(spoken.map((x) => x.text)).toEqual(["One.", "Three."]);
+    // The stale line ending again must not cut "Three." short or release what follows.
+    pacer.push(ev({ type: "say", text: "Four." }));
+    spoken[0].done();
+    expect(spoken.map((x) => x.text)).toEqual(["One.", "Three."]);
+    spoken[1].done();
+    expect(spoken.map((x) => x.text)).toEqual(["One.", "Three.", "Four."]);
+    pacer.dispose();
+  });
+
+  it("a stopped voice cannot start the next line when the pacer flushes first", () => {
+    const { pacer, applied, spoken, ev } = setup();
+    pacer.push(ev({ type: "say", text: "One." }));
+    pacer.push(ev({ type: "say", text: "Two." }));
+    pacer.flush();
+    spoken[0].done();
+    expect(spoken).toHaveLength(1);
+    expect(applied).toHaveLength(2);
+    pacer.dispose();
+  });
+
+  it("hold keeps everything back, apart from the student's pause", () => {
+    const { pacer, spoken, ev } = setup();
+    pacer.hold(true);
+    pacer.push(ev({ type: "say", text: "Hello." }));
+    expect(spoken).toHaveLength(0);
+    pacer.pause();
+    pacer.hold(false);
+    expect(spoken).toHaveLength(0); // still paused by the student
+    pacer.resume();
+    expect(spoken.map((x) => x.text)).toEqual(["Hello."]);
+    pacer.dispose();
+  });
 });
 
 describe("helpers", () => {

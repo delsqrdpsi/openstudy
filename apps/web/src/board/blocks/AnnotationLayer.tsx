@@ -1,15 +1,14 @@
 "use client";
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import type { AnnotationBlock } from "@openstudy/shared";
 import { ANNOTATION_COLORS } from "@openstudy/shared";
-import { hashId, markerPath, measureMatch, rectsForBoxes, seeded, union, wavyUnderline, wobblyEllipse, type Rect } from "../annotations";
+import { hashId, markerPath, measureMatch, rectsForBoxes, sameList, seeded, union, wavyUnderline, wobblyEllipse, type Rect } from "../annotations";
 import type { TextBox } from "@openstudy/shared";
 
 interface Props {
   annotations: AnnotationBlock[];
   /** The rendered target block element. */
   targetEl: HTMLElement | null;
-  scale: number;
   /** Changes whenever the target's content or size changes, to re-measure. */
   version: number;
   /** For page blocks: positioned text, so marks land on words of the page image. */
@@ -21,21 +20,26 @@ type Drawn =
   | { id: string; kind: "circle"; color: string; d: string; length: number }
   | { id: string; kind: "underline"; color: string; paths: { d: string; length: number }[] };
 
-export function AnnotationLayer({ annotations, targetEl, scale, version, boxes }: Props) {
+/**
+ * Marks over one block. Everything is measured in the block's own unscaled
+ * pixels: layout sizes come from offsetWidth/offsetHeight, and the screen
+ * rects of matched text are divided by the block's on-screen scale, read off
+ * the element itself. So zooming the camera never re-measures.
+ */
+function AnnotationLayerView({ annotations, targetEl, version, boxes }: Props) {
   const drawn = useMemo<Drawn[]>(() => {
     const out: Drawn[] = [];
     if (!targetEl) return out;
+    const W = targetEl.offsetWidth;
+    const H = targetEl.offsetHeight;
+    // The camera's zoom, as it applies to this element right now.
+    const onScreen = targetEl.getBoundingClientRect().width;
+    const scale = W > 0 && onScreen > 0 ? onScreen / W : 1;
     for (const a of annotations) {
       let rects: Rect[] = [];
-      if (a.region) {
-        const r = targetEl.getBoundingClientRect();
-        const W = r.width / scale;
-        const H = r.height / scale;
-        rects = [{ x: a.region.x * W, y: a.region.y * H, w: a.region.w * W, h: a.region.h * H }];
-      } else if (a.match && boxes) {
-        const r = targetEl.getBoundingClientRect();
-        rects = rectsForBoxes(boxes, a.match, r.width / scale, r.height / scale);
-      } else if (a.match) rects = measureMatch(targetEl, a.match, scale);
+      if (a.region) rects = [{ x: a.region.x * W, y: a.region.y * H, w: a.region.w * W, h: a.region.h * H }];
+      else if (a.match && boxes) rects = rectsForBoxes(boxes, a.match, W, H);
+      else if (a.match) rects = measureMatch(targetEl, a.match, scale);
       // No match: skip the mark. A highlight over the whole block is worse than none.
       if (!rects.length) continue;
       const rnd = seeded(hashId(a.id));
@@ -49,7 +53,7 @@ export function AnnotationLayer({ annotations, targetEl, scale, version, boxes }
     return out;
     // version is a re-measure trigger from the ResizeObserver.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [annotations, targetEl, scale, version, boxes]);
+  }, [annotations, targetEl, version, boxes]);
 
   if (!drawn.length) return null;
   return (
@@ -94,3 +98,6 @@ export function AnnotationLayer({ annotations, targetEl, scale, version, boxes }
     </svg>
   );
 }
+
+// The list is rebuilt on every board change; re-measure only when its marks, the block or its size change.
+export const AnnotationLayer = memo(AnnotationLayerView, (a, b) => a.targetEl === b.targetEl && a.version === b.version && a.boxes === b.boxes && sameList(a.annotations, b.annotations));

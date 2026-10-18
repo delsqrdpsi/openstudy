@@ -20,7 +20,7 @@ export interface VoiceApi {
   speak: (text: string, onEnd?: () => void) => boolean;
   /** How long a line takes to say, in ms. */
   estimate: (text: string) => number;
-  /** Stop now and drop what is queued. */
+  /** Stop now and drop what is queued. Also ends a pause: the next line plays. */
   stop: () => void;
   /** Microphone input level, 0 to 1, while listening (0 when the voice cannot measure it). */
   level: number;
@@ -30,6 +30,10 @@ export interface VoiceApi {
   paused: boolean;
   pause: () => void;
   resume: () => void;
+  /** Call from a click or key press: lets audio start on a page that was reloaded. */
+  unlock: () => void;
+  /** Why the mic turned itself off, if it did. */
+  micError: string | null;
 }
 
 export interface VoiceOptions {

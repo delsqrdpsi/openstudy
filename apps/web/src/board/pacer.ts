@@ -48,6 +48,8 @@ export class Pacer {
   private queue: PacedItem[] = [];
   private speaking: Speaking | null = null;
   private paused = false;
+  /** Held until the page may play sound (a reload needs a click first). Separate from the student's pause. */
+  private held = false;
   /** Pictures placed on the board but not drawn yet, with the time the voice stops waiting for each. */
   private drawing = new Map<string, number>();
   private budget = IDLE_BUDGET;
@@ -116,6 +118,17 @@ export class Pacer {
     return this.paused;
   }
 
+  /** Hold everything back without touching the student's pause, e.g. until audio is unlocked. */
+  hold(on: boolean) {
+    if (this.held === on) return;
+    this.held = on;
+    if (on) this.stopTimer();
+    else {
+      this.lastTick = this.now();
+      this.drain();
+    }
+  }
+
   /** Drop everything pending and stop the voice. For interruptions: what was not heard is not shown. */
   discard(): number {
     this.paused = false;
@@ -177,7 +190,7 @@ export class Pacer {
   }
 
   private drain() {
-    if (this.paused) return;
+    if (this.paused || this.held) return;
     while (this.queue.length) {
       // A picture is still being drawn: nothing after it lands yet.
       if (this.waitingForPicture()) break;
@@ -219,7 +232,9 @@ export class Pacer {
     this.speaking = s;
     let finished = false;
     const done = () => {
-      if (finished) return;
+      // A line that was cut off (discard, flush, a newer line) reports back late
+      // when its voice is stopped; that must not release the next line.
+      if (finished || this.speaking !== s) return;
       finished = true;
       s.ended = true;
       if (s.guard) clearTimeout(s.guard);
@@ -228,7 +243,7 @@ export class Pacer {
     s.cancel = this.hooks.speak(text, done);
     // A synthesiser that never reports back must not freeze the lesson (while paused, it waits).
     const arm = () => {
-      s.guard = setTimeout(() => (this.paused ? arm() : done()), estMs * 2.5 + 3000);
+      s.guard = setTimeout(() => (this.paused || this.held ? arm() : done()), estMs * 2.5 + 3000);
     };
     arm();
   }
