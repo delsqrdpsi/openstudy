@@ -126,7 +126,7 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
   ) : null;
 
   return (
-    <main className="relative flex h-full w-full overflow-hidden" data-turn={turn}>
+    <main className="wb-paper relative flex h-full w-full overflow-hidden" data-turn={turn}>
       <section className="relative min-w-0 flex-1">
         <Board ref={board} state={state} writingId={writingId} follow={follow} onScaleChange={onScale} />
 
@@ -228,21 +228,23 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
         </div>
       </section>
 
-      {/* chat history */}
+      {/* chat history: a panel that stops a little above the message box */}
       {panel && (
-        <aside className="flex w-[360px] shrink-0 flex-col border-l border-[var(--panel-border)] bg-[var(--panel)]">
-          <header className="flex items-center justify-between py-3 pl-5 pr-3">
-            <h2 className="text-[15px] font-semibold">Chat history</h2>
-            <span className="flex items-center gap-2 text-[12px] text-neutral-500">
-              {busy && <span className="ui-pulse" />}
-              {turnLabel}
-              <button className="ui-btn ml-1" onClick={() => showPanel(false)} aria-label="Hide chat history" title="Hide chat history">
-                ›
-              </button>
-            </span>
-          </header>
-          <ChatList transcript={transcript} />
-          {/* Room for the message box, so the chat ends just above it. */}
+        <aside className="flex w-[360px] shrink-0 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-bl-[14px] border-b border-l border-[var(--panel-border)] bg-[var(--panel)]">
+            <header className="flex items-center justify-between py-3 pl-5 pr-3">
+              <h2 className="text-[15px] font-semibold">Chat history</h2>
+              <span className="flex items-center gap-2 text-[12px] text-neutral-500">
+                {busy && <span className="ui-pulse" />}
+                {turnLabel}
+                <button className="ui-btn ml-1" onClick={() => showPanel(false)} aria-label="Hide chat history" title="Hide chat history">
+                  ›
+                </button>
+              </span>
+            </header>
+            <ChatList transcript={transcript} />
+          </div>
+          {/* The board's paper shows through here, under the message box. */}
           {onSay && <div className="h-[76px] shrink-0" aria-hidden />}
         </aside>
       )}
