@@ -62,11 +62,11 @@ Three speeds of motion on the board:
 | Need | Mechanism | Latency |
 |---|---|---|
 | A piston goes up and down while the tutor talks | `@motion`: animated SVG written by the tutor, shown as drawn | seconds |
-| A real machine you can poke at | `@figure`: a prebuilt Anatomy figure from `figures/`, in a sandboxed frame | instant |
-| A model that does not exist yet | `@build_figure`: the Anatomy skill runs through the CLI in the background; the model lands on the saved board | tens of minutes |
+| A real machine you can poke at | `@build_figure`: the Anatomy skill builds that real object through the CLI in the background, after the student approves; the model lands on the saved board | up to an hour |
 
-The planner sees the library and can suggest a model per section. Figures
-are plain self-contained HTML, so anyone can add their own.
+Models are always built for the lesson that asked, never picked from a
+library: neither the planner nor the tutor sees one. Built pages stay on the
+machine that built them, in `figures/` (ignored by git).
 
 ### Architecture
 

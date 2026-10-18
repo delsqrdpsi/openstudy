@@ -1,6 +1,6 @@
 Required Notice: Copyright 2026 delsqrdpsi (https://github.com/delsqrdpsi)
 
-Some files under `figures/` come from, or contain code from, the Anatomy project and are under the MIT License instead. See THIRD_PARTY_NOTICES.md.
+Interactive models built locally under `figures/` contain code from the Anatomy project, which is under the MIT License. See THIRD_PARTY_NOTICES.md.
 
 # PolyForm Noncommercial License 1.0.0
 

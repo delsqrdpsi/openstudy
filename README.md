@@ -112,7 +112,8 @@ of Deepgram voice is under a dollar.
   You see the exact request and approve it first, because the build runs the
   Anatomy skill through the `claude` CLI with tools on your machine; the
   model lands on the board when it finishes (up to an hour). Built pages are
-  kept in `figures/` and served in a sandboxed frame. Simple motion is drawn
+  kept in `figures/` on your machine (git ignores them) and served in a
+  sandboxed frame. Simple motion is drawn
   with `@motion` (animated SVG, seconds).
 - Recovery: each lesson keeps its own `claude` session. If that session is
   gone (deleted, expired, another machine), the tutor starts a fresh one and
@@ -154,5 +155,5 @@ schools and public institutions. Commercial use, including selling it or
 offering it as a paid product or service, is not permitted. For a commercial
 license, contact [@delsqrdpsi](https://github.com/delsqrdpsi).
 
-Some figures under `figures/` come from the Anatomy project and stay under
-the MIT License; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Interactive models you build locally contain code from the Anatomy project,
+which stays under the MIT License; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

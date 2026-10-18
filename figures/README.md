@@ -6,14 +6,13 @@ self-contained `index.html` and a `figure.json` with `name`, `title`,
 picks one of these on its own; it builds the object a lesson needs (see
 `@build_figure`), and the tutor server serves the result from this folder.
 
-Figures are built with the Anatomy skill (https://github.com/wheresryan22/anatomy)
-in Claude Code: `/anatomy <what to show>`, then import the built page:
+Everything here except this README is ignored by git: models are built on
+the machine that runs OpenStudy and stay there. To let the tutor build them,
+install the Anatomy skill once:
+
+    pnpm setup:anatomy
+
+You can also build one by hand in Claude Code (`/anatomy <what to show>`) and
+add the page with:
 
     pnpm figures:import path/to/figure-light.html my-figure "Title" "Description"
-
-Copy the rest of the shipped Anatomy examples in with:
-
-    npx skills add wheresryan22/anatomy -g -a claude-code
-    pnpm figures:seed
-
-The two figures here are Anatomy examples (MIT) so the library is never empty.

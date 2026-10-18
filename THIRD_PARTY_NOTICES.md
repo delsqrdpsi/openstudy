@@ -8,9 +8,9 @@ their own terms, reproduced here.
 
 https://github.com/wheresryan22/anatomy
 
-- `figures/desk-computer/` and `figures/dial-indicator/` are Anatomy examples.
-- Figures built with the Anatomy skill (for example `figures/lever-balance/`)
-  contain Anatomy's rendering code.
+Interactive models built with the Anatomy skill contain its rendering code.
+They are made on your machine under `figures/` and are not part of this
+repository; if you share one, include this notice with it.
 
 ```
 MIT License
