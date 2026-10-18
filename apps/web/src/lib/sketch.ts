@@ -14,7 +14,28 @@ export interface SketchOptions {
 }
 
 const GEOMETRY = new Set(["line", "rect", "circle", "ellipse", "polyline", "polygon", "path"]);
-const DANGEROUS_ATTR = /^(on|xlink:href|href)$/i;
+
+/**
+ * Whether an attribute of a model-written SVG element may stay. The SVG is put
+ * on the page as markup, so an event handler (onclick, onmouseover, ...) would
+ * run as script on the board's origin. Links may only point inside the SVG
+ * (<use href="#id">); styles may not fetch anything.
+ */
+export function safeSvgAttr(element: string, name: string, value: string): boolean {
+  const n = name.toLowerCase();
+  if (n.startsWith("on")) return false;
+  if (n === "href" || n === "xlink:href") return element === "use" && value.trim().startsWith("#");
+  if (n === "xmlns:xlink") return false;
+  if (n === "style" && /url\(|@import|expression|javascript:/i.test(value)) return false;
+  return true;
+}
+
+/** An animation that would rewrite an event handler or a link is a way around safeSvgAttr. */
+function unsafeAnimation(el: Element): boolean {
+  const target = (el.getAttribute("attributeName") ?? "").toLowerCase();
+  if (target.startsWith("on") || target.endsWith("href")) return true;
+  return ["values", "to", "from", "by"].some((a) => /javascript:/i.test(el.getAttribute(a) ?? ""));
+}
 
 export function sketchSvg(svgText: string, opts: SketchOptions = {}): string {
   const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
@@ -136,7 +157,7 @@ function copyTransform(from: Element, to: Element) {
 function cleanText(el: Element): Element {
   const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
   for (const a of Array.from(el.attributes)) {
-    if (DANGEROUS_ATTR.test(a.name)) continue;
+    if (!safeSvgAttr("text", a.name, a.value)) continue;
     if (a.name === "font-family") continue;
     t.setAttribute(a.name, a.value);
   }
@@ -168,7 +189,6 @@ const MOTION_ALLOWED = new Set([
   "svg", "g", "defs", "line", "rect", "circle", "ellipse", "polyline", "polygon", "path", "text", "tspan", "title",
   "animate", "animatetransform", "animatemotion", "mpath", "set", "lineargradient", "radialgradient", "stop", "clippath", "mask", "use", "style",
 ]);
-const MOTION_BAD_ATTR = /^(on|xlink:href|href|xmlns:xlink)$/i;
 
 export function motionSvg(svgText: string): string {
   const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
@@ -177,20 +197,20 @@ export function motionSvg(svgText: string): string {
   const walk = (el: Element) => {
     for (const child of Array.from(el.children)) {
       const name = child.nodeName.toLowerCase();
-      if (!MOTION_ALLOWED.has(name)) {
+      const animation = name.startsWith("animate") || name === "set";
+      if (!MOTION_ALLOWED.has(name) || (animation && unsafeAnimation(child))) {
         child.remove();
         continue;
       }
       for (const a of Array.from(child.attributes)) {
-        if (MOTION_BAD_ATTR.test(a.name)) child.removeAttribute(a.name);
-        else if (name === "use" && a.name === "href" && !a.value.startsWith("#")) child.removeAttribute(a.name);
+        if (!safeSvgAttr(name, a.name, a.value)) child.removeAttribute(a.name);
         else if (a.name === "font-family") child.setAttribute("font-family", "var(--wb-font-head)");
       }
       if (name === "style" && /url\(|@import|expression/i.test(child.textContent ?? "")) child.remove();
       else walk(child);
     }
   };
-  for (const a of Array.from(root.attributes)) if (MOTION_BAD_ATTR.test(a.name)) root.removeAttribute(a.name);
+  for (const a of Array.from(root.attributes)) if (!safeSvgAttr("svg", a.name, a.value)) root.removeAttribute(a.name);
   walk(root);
   root.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   if (!root.getAttribute("viewBox")) root.setAttribute("viewBox", "0 0 300 200");

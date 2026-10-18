@@ -115,6 +115,13 @@ of Deepgram voice is under a dollar.
   background and adds the result to the saved board when it finishes
   (tens of minutes). Seed more examples with `pnpm figures:seed` after
   `npx skills add wheresryan22/anatomy -g -a claude-code`.
+- Security: the tutor server listens on 127.0.0.1 and answers only the
+  board's own pages (`WEB_ORIGINS`) under its own hostnames, so other
+  websites and other machines on your network cannot use your keys or read
+  your folders. Everything the model writes is treated as untrusted: board
+  HTML and SVG are sanitised, and every page carries a nonce-based
+  Content-Security-Policy so a sanitiser gap still cannot run script.
+  Interactive models run in a sandboxed frame.
 
 ## Checks
 

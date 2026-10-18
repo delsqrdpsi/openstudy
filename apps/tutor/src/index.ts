@@ -11,24 +11,37 @@ import { listJobs } from "./figures/builder";
 import { bridgeTranscription, SAMPLE_RATE, speak, voiceConfig, VoiceError } from "./voice/deepgram";
 import { log } from "./log";
 import { activeMeter } from "./usage";
+import { corsHeaders, HttpError, readJson, refusal } from "./guard";
 
 const PORT = Number(process.env.TUTOR_PORT ?? 8787);
+/** Only this machine by default; a hosted server sets TUTOR_HOST=0.0.0.0 behind its proxy. */
+const HOST = process.env.TUTOR_HOST ?? "127.0.0.1";
+/** Reading a folder path off this machine's disk is a local feature; a hosted server sets FOLDER_SCAN=off. */
+const FOLDER_SCAN = process.env.FOLDER_SCAN !== "off";
 
 // One failed picture or model call must never take the server down with every lesson on it.
 process.on("unhandledRejection", (err) => log.error("unhandled rejection:", err instanceof Error ? err.message : err));
 process.on("uncaughtException", (err) => log.error("uncaught exception:", err.message));
 const store = new Store();
 
-const CORS = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST, DELETE, OPTIONS", "access-control-allow-headers": "content-type" };
+const pathOf = (req: import("node:http").IncomingMessage) => new URL(req.url ?? "/", "http://localhost").pathname;
+const corsFor = (req: import("node:http").IncomingMessage) => corsHeaders(req, pathOf(req));
 const json = (res: import("node:http").ServerResponse, status: number, body: unknown) => {
-  res.writeHead(status, { "content-type": "application/json", ...CORS });
+  res.writeHead(status, { "content-type": "application/json", ...corsFor(res.req) });
   res.end(JSON.stringify(body));
 };
 
 const http = createServer((req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");
+  const refused = refusal(req, url.pathname);
+  if (refused) {
+    log.warn(`refused ${req.method} ${url.pathname}: ${refused} (host ${req.headers.host}, origin ${req.headers.origin})`);
+    res.writeHead(403, { "content-type": "text/plain" });
+    res.end(refused);
+    return;
+  }
   if (req.method === "OPTIONS") {
-    res.writeHead(204, CORS);
+    res.writeHead(204, corsFor(req));
     res.end();
     return;
   }
@@ -48,11 +61,10 @@ const http = createServer((req, res) => {
   if (url.pathname === "/figures" && req.method === "GET") return json(res, 200, { figures: listFigures(), jobs: listJobs() });
   if (url.pathname === "/sources" && req.method === "GET") return json(res, 200, { sources: listSources() });
   if (url.pathname === "/sources/scan" && req.method === "POST") {
+    if (!FOLDER_SCAN) return json(res, 404, { error: "reading folders is turned off on this server" });
     void (async () => {
-      let body = "";
-      for await (const chunk of req) body += chunk;
       try {
-        const { dir, files } = JSON.parse(body || "{}") as { dir?: string; files?: string[] };
+        const { dir, files } = (await readJson(req, 64 * 1024)) as { dir?: string; files?: string[] };
         if (!dir) return json(res, 400, { error: "dir is required" });
         const found = scanFolder(dir);
         if (!files) return json(res, 200, { found });
@@ -67,7 +79,7 @@ const http = createServer((req, res) => {
         }
         json(res, 200, { prepared });
       } catch (e) {
-        json(res, 400, { error: e instanceof Error ? e.message : String(e) });
+        json(res, e instanceof HttpError ? e.status : 400, { error: e instanceof Error ? e.message : String(e) });
       }
     })();
     return;
@@ -76,7 +88,7 @@ const http = createServer((req, res) => {
   if (srcMatch && req.method === "GET") {
     const file = readSourceFile(srcMatch[1], srcMatch[2]);
     if (file) {
-      res.writeHead(200, { "content-type": file.type, "cache-control": "public, max-age=3600", ...CORS });
+      res.writeHead(200, { "content-type": file.type, "cache-control": "public, max-age=3600", ...corsFor(req) });
       res.end(file.bytes);
       return;
     }
@@ -87,7 +99,7 @@ const http = createServer((req, res) => {
     if (file) {
       // Pages are re-read each time (the board's size reporter is added on the way out); assets can be cached.
       const cache = file.type.startsWith("text/html") ? "no-cache" : "public, max-age=3600";
-      res.writeHead(200, { "content-type": file.type, "cache-control": cache, ...CORS });
+      res.writeHead(200, { "content-type": file.type, "cache-control": cache, ...corsFor(req) });
       res.end(file.bytes);
       return;
     }
@@ -107,7 +119,7 @@ const http = createServer((req, res) => {
   if (req.url?.startsWith("/images/")) {
     const file = imageStore.read(decodeURIComponent(req.url.slice("/images/".length)));
     if (file) {
-      res.writeHead(200, { "content-type": file.type, "cache-control": "public, max-age=31536000, immutable", "access-control-allow-origin": "*" });
+      res.writeHead(200, { "content-type": file.type, "cache-control": "public, max-age=31536000, immutable", ...corsFor(req) });
       res.end(file.bytes);
       return;
     }
@@ -118,23 +130,18 @@ const http = createServer((req, res) => {
 
 /** POST /tts {text}: the line as streamed PCM, for the browser to play as it arrives. */
 async function streamSpeech(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) {
-  let body = "";
-  for await (const chunk of req) {
-    body += chunk;
-    if (body.length > 20000) return json(res, 413, { error: "too long" });
-  }
   let text: string;
   try {
-    text = String((JSON.parse(body) as { text?: unknown }).text ?? "");
-  } catch {
-    return json(res, 400, { error: "bad json" });
+    text = String(((await readJson(req, 20000)) as { text?: unknown }).text ?? "");
+  } catch (e) {
+    return json(res, e instanceof HttpError ? e.status : 400, { error: e instanceof Error ? e.message : String(e) });
   }
   const abort = new AbortController();
   req.on("close", () => abort.abort());
   try {
     const up = await speak(text, abort.signal);
     activeMeter()?.tts(text.length);
-    res.writeHead(200, { "content-type": "audio/l16", "x-sample-rate": String(SAMPLE_RATE), "cache-control": "no-store", ...CORS });
+    res.writeHead(200, { "content-type": "audio/l16", "x-sample-rate": String(SAMPLE_RATE), "cache-control": "no-store", ...corsFor(req) });
     for await (const chunk of up.body as unknown as AsyncIterable<Uint8Array>) {
       if (abort.signal.aborted) break;
       res.write(chunk);
@@ -150,10 +157,18 @@ async function streamSpeech(req: import("node:http").IncomingMessage, res: impor
 }
 
 // Two websocket paths on one server: /ws for the lesson, /stt for the student's microphone.
-const wss = new WebSocketServer({ noServer: true });
-const stt = new WebSocketServer({ noServer: true });
+// The lesson socket carries attached material as text, the microphone small audio chunks.
+const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
+const stt = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 http.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url ?? "/", "http://localhost");
+  // A browser always sends Origin when opening a websocket, so another site's page is refused here.
+  const refused = refusal(req, url.pathname);
+  if (refused) {
+    log.warn(`refused websocket ${url.pathname}: ${refused} (host ${req.headers.host}, origin ${req.headers.origin})`);
+    socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
+    return;
+  }
   if (url.pathname === "/ws") wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
   else if (url.pathname === "/stt") stt.handleUpgrade(req, socket, head, (ws) => bridgeTranscription(ws, url.searchParams));
   else socket.destroy();
@@ -220,4 +235,4 @@ wss.on("connection", (ws: WebSocket) => {
   });
 });
 
-http.listen(PORT, () => log.info(`tutor server on http://localhost:${PORT} (ws at /ws, voice: ${voiceConfig().provider})`));
+http.listen(PORT, HOST, () => log.info(`tutor server on http://${HOST}:${PORT} (ws at /ws, voice: ${voiceConfig().provider})`));
