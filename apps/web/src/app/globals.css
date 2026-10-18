@@ -162,7 +162,7 @@ body {
   margin-top: 6px;
 }
 
-/* Image loader: a scribble draws itself and fades, a pencil rides along it */
+/* Image loader: a scribble draws itself and fades */
 .wb-sketching {
   width: 100%;
   height: 100%;
@@ -199,25 +199,6 @@ body {
   90%,
   100% {
     stroke-dashoffset: 0;
-    opacity: 0;
-  }
-}
-.wb-sketching .pencil {
-  offset-rotate: auto;
-  animation: wb-ride 4s ease-in-out infinite;
-}
-@keyframes wb-ride {
-  0% {
-    offset-distance: 0%;
-    opacity: 1;
-  }
-  70% {
-    offset-distance: 100%;
-    opacity: 1;
-  }
-  80%,
-  100% {
-    offset-distance: 100%;
     opacity: 0;
   }
 }
@@ -270,47 +251,6 @@ body {
   opacity: 0.75;
 }
 
-/* The pencil. Its tip is the element's origin; the board places it in world
-   coordinates, so it moves and scales with the paper. */
-.wb-pen {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 0;
-  height: 0;
-  pointer-events: none;
-  z-index: 5;
-  transform-origin: 0 0;
-  transition: transform 90ms linear, opacity 220ms ease-out;
-  filter: drop-shadow(1px 2px 1.5px rgba(31, 42, 55, 0.28));
-}
-.wb-pen svg {
-  position: absolute;
-  left: -4px;
-  top: -44px;
-  overflow: visible;
-}
-.wb-pen.is-idle {
-  opacity: 0;
-}
-
-.wb-item-enter {
-  animation: wb-fade-in 260ms ease-out;
-}
-@keyframes wb-fade-in {
-  from {
-    opacity: 0;
-  }
-}
-.wb-enter {
-  animation: wb-enter 260ms ease-out;
-}
-@keyframes wb-enter {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-}
 
 /* UI pieces */
 .ui-card {

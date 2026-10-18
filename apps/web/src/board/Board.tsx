@@ -8,7 +8,6 @@ import { SvgBlock } from "./blocks/SvgBlock";
 import { ImageBlock } from "./blocks/ImageBlock";
 import { EmbedBlock } from "./blocks/EmbedBlock";
 import { AnnotationLayer } from "./blocks/AnnotationLayer";
-import { Pencil } from "./Pencil";
 import { finishStrokes, planStrokes, renderStrokes, type StrokePlan } from "./strokes";
 
 export interface BoardHandle {
@@ -123,19 +122,6 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ state, writ
 
   useEffect(() => onScaleChange?.(camera.scale), [camera.scale, onScaleChange]);
 
-  // ---- The pencil. It rides the strokes being drawn, else the end of the text being written.
-  const [pen, setPen] = useState<{ x: number; y: number; idle: boolean } | null>(null);
-  const penIdle = useRef<number | null>(null);
-  const showPen = useCallback((clientX: number, clientY: number) => {
-    const world = worldRef.current;
-    if (!world) return;
-    const r = world.getBoundingClientRect();
-    const k = scaleRef.current;
-    setPen({ x: (clientX - r.left) / k, y: (clientY - r.top) / k, idle: false });
-    if (penIdle.current) window.clearTimeout(penIdle.current);
-    penIdle.current = window.setTimeout(() => setPen((p) => (p ? { ...p, idle: true } : p)), 1100);
-  }, []);
-
   // Strokes are drawn one plan at a time, in the order they appeared.
   const plans = useRef<{ plan: StrokePlan; started: number }[]>([]);
   const raf = useRef(0);
@@ -152,22 +138,15 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ state, writ
       const cur = q[0];
       if (!cur.started) cur.started = now;
       const tip = renderStrokes(cur.plan, (now - cur.started) * speed);
-      if (tip) showPen(tip.x, tip.y);
-      else {
+      if (!tip) {
         finishStrokes(cur.plan);
         q.shift();
       }
       raf.current = requestAnimationFrame(step);
     };
     raf.current = requestAnimationFrame(step);
-  }, [showPen]);
-  useEffect(
-    () => () => {
-      cancelAnimationFrame(raf.current);
-      if (penIdle.current) window.clearTimeout(penIdle.current);
-    },
-    [],
-  );
+  }, []);
+  useEffect(() => () => cancelAnimationFrame(raf.current), []);
 
   // New diagrams and annotations get drawn on. Before the next paint so nothing flashes.
   const seen = useRef<Set<string> | null>(null);
@@ -197,22 +176,6 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ state, writ
     if (plans.current.length) runPlans();
     // targets: annotation overlays render once their target element is known.
   }, [state.blocks, targets, runPlans]);
-
-  // While text streams and nothing is being drawn, the pencil sits at the end of the writing.
-  useLayoutEffect(() => {
-    if (!writingId || plans.current.length) return;
-    const el = targets.get(writingId);
-    if (!el) return;
-    const node = lastTextNode(el);
-    if (!node) return;
-    const range = document.createRange();
-    range.setStart(node, node.length);
-    range.setEnd(node, node.length);
-    const rects = range.getClientRects();
-    const r = rects.length ? rects[rects.length - 1] : range.getBoundingClientRect();
-    if (!r || (r.width === 0 && r.height === 0)) return;
-    showPen(r.right, r.bottom - r.height * 0.25);
-  }, [writingId, state.blocks, targets, showPen]);
 
   useImperativeHandle(
     ref,
@@ -253,23 +216,12 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ state, writ
             </div>
           );
         })}
-        {pen && <Pencil x={pen.x} y={pen.y} scale={camera.scale} idle={pen.idle} />}
       </div>
     </div>
   );
 });
 
 /** The last non-empty text node under `root`, where the writing currently ends. */
-function lastTextNode(root: HTMLElement): Text | null {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let last: Text | null = null;
-  let n: Node | null;
-  while ((n = walker.nextNode())) {
-    const t = n as Text;
-    if (t.data.trim()) last = t;
-  }
-  return last;
-}
 
 function BlockView({ block, writing }: { block: ContentBlock; writing: boolean }) {
   switch (block.type) {
