@@ -6,4 +6,4 @@
 - Reading and searching Slack is fine.
 
 ## Plan
-- The product plan lives in PLAN.md. Part A is what the Studdy DOM reveals, Part B is the build plan.
+- The product plan lives in PLAN.md: decisions, lesson flow, architecture, build order.

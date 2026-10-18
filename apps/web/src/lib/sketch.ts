@@ -4,7 +4,7 @@ import type { RoughSVG } from "roughjs/bin/svg";
 /**
  * Turn a clean model-authored SVG into a hand-drawn one: every shape is
  * re-drawn with rough.js, geometry gets a shared pencil-noise filter, and text
- * is kept crisp in its own group. Mirrors what the real product does.
+ * is kept crisp in its own group.
  */
 export interface SketchOptions {
   roughness?: number;
