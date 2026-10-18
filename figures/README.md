@@ -1,9 +1,10 @@
 # Figure library
 
-Interactive models the tutor can put on the board with `@figure name=<folder>`.
-Each folder holds a self-contained `index.html` and a `figure.json` with
-`name`, `title`, `description` (the tutor reads this to decide when to use
-it), `tags`, `source` and a display `height`.
+Interactive models built for lessons land here, one folder per model: a
+self-contained `index.html` and a `figure.json` with `name`, `title`,
+`description`, `tags`, `source` and a display `height`. The tutor never
+picks one of these on its own; it builds the object a lesson needs (see
+`@build_figure`), and the tutor server serves the result from this folder.
 
 Figures are built with the Anatomy skill (https://github.com/wheresryan22/anatomy)
 in Claude Code: `/anatomy <what to show>`, then import the built page:

@@ -8,7 +8,7 @@ import { Store } from "./store";
 import { listFigures, readFigureFile } from "./figures";
 import { listSources, prepareSource, readSourceFile, scanFolder } from "./sources";
 import { stopOcr } from "./sources/ocr";
-import { listJobs } from "./figures/builder";
+import { listJobs, anatomyInstalled } from "./figures/builder";
 import { bridgeTranscription, SAMPLE_RATE, speak, voiceConfig, VoiceError } from "./voice/deepgram";
 import { log } from "./log";
 import { activeMeter } from "./usage";
@@ -72,7 +72,7 @@ const http = createServer((req, res) => {
     return;
   }
   if (url.pathname === "/health") {
-    return json(res, 200, { ok: true, brain: process.env.BRAIN ?? "claude-code", images: process.env.IMAGES ?? (process.env.GEMINI_API_KEY ? "gemini" : "none"), voice: voiceConfig().provider });
+    return json(res, 200, { ok: true, brain: process.env.BRAIN ?? "claude-code", images: process.env.IMAGES ?? (process.env.GEMINI_API_KEY ? "gemini" : "none"), voice: voiceConfig().provider, builds: anatomyInstalled() });
   }
   if (url.pathname === "/voice" && req.method === "GET") return json(res, 200, voiceConfig());
   if (url.pathname === "/tts" && req.method === "POST") {
@@ -284,4 +284,9 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
-http.listen(PORT, HOST, () => log.info(`tutor server on http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT} (ws at /ws, voice: ${voiceConfig().provider})`));
+http.listen(PORT, HOST, () => {
+  log.info(`tutor server on http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT} (ws at /ws, voice: ${voiceConfig().provider})`);
+  // Interactive models are built by the Anatomy skill; say plainly whether that works here.
+  if (anatomyInstalled()) log.info("model builds: on (Anatomy skill found)");
+  else log.info("model builds: off. Run `pnpm setup:anatomy` to let the tutor build interactive models.");
+});
