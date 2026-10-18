@@ -30,11 +30,8 @@ export function AnnotationLayer({ annotations, targetEl, scale, version }: Props
         const H = r.height / scale;
         rects = [{ x: a.region.x * W, y: a.region.y * H, w: a.region.w * W, h: a.region.h * H }];
       } else if (a.match) rects = measureMatch(targetEl, a.match, scale);
-      if (!rects.length) {
-        // Fall back to the whole block so the gesture still lands somewhere.
-        const r = targetEl.getBoundingClientRect();
-        rects = [{ x: 0, y: 0, w: r.width / scale, h: r.height / scale }];
-      }
+      // No match: skip the mark. A highlight over the whole block is worse than none.
+      if (!rects.length) continue;
       const rnd = seeded(hashId(a.id));
       const color = a.color ?? ANNOTATION_COLORS[a.kind];
       if (a.kind === "highlight") out.push({ id: a.id, kind: "highlight", color, paths: rects.map((r) => markerPath(r, rnd)) });

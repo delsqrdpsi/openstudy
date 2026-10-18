@@ -26,8 +26,61 @@ export function hashId(id: string): number {
 }
 
 /**
+ * Fold text so a tutor's "match" finds the board text even when quotes,
+ * dashes, case or spacing differ. Returns the folded string and, for each
+ * folded character, its index in the original.
+ */
+export function foldText(s: string): { folded: string; map: number[] } {
+  let folded = "";
+  const map: number[] = [];
+  let lastSpace = true;
+  for (let i = 0; i < s.length; i++) {
+    let c = s[i].toLowerCase();
+    if (/[\u2018\u2019\u201a\u2032`]/.test(c)) c = "'";
+    else if (/[\u201c\u201d\u201e\u2033]/.test(c)) c = '"';
+    else if (/[\u2010-\u2015\u2212]/.test(c)) c = "-";
+    else if (/[\u00a0\s]/.test(c)) c = " ";
+    if (c === " ") {
+      if (lastSpace) continue;
+      lastSpace = true;
+    } else lastSpace = false;
+    folded += c;
+    map.push(i);
+  }
+  return { folded: folded.replace(/ $/, ""), map };
+}
+
+/** Locate `match` in `text` tolerantly. Returns original [start, end) or null. */
+export function findMatch(text: string, match: string): [number, number] | null {
+  const exact = text.indexOf(match);
+  if (exact !== -1) return [exact, exact + match.length];
+  const t = foldText(text);
+  const m = foldText(match).folded.trim();
+  if (!m) return null;
+  let idx = t.folded.indexOf(m);
+  if (idx === -1) {
+    // last resort: ignore punctuation entirely
+    const strip = (x: string) => x.replace(/[^a-z0-9 ]/g, "");
+    const tt = strip(t.folded);
+    const mm = strip(m);
+    if (!mm || mm.length < 3) return null;
+    const j = tt.indexOf(mm);
+    if (j === -1) return null;
+    // map back through the characters that survived stripping
+    const survivors: number[] = [];
+    for (let i = 0; i < t.folded.length; i++) if (/[a-z0-9 ]/.test(t.folded[i])) survivors.push(i);
+    idx = survivors[j];
+    const endF = survivors[Math.min(survivors.length - 1, j + mm.length - 1)];
+    return [t.map[idx], t.map[endF] + 1];
+  }
+  return [t.map[idx], t.map[idx + m.length - 1] + 1];
+}
+
+/**
  * Find `match` in the text content of `root` and return the client rects of
- * each rendered line, converted to root-local unscaled coordinates.
+ * each rendered line, converted to root-local unscaled coordinates. Empty
+ * when the phrase is not on the block: the caller then skips the mark
+ * rather than painting the whole block.
  */
 export function measureMatch(root: HTMLElement, match: string, scale: number): Rect[] {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -41,9 +94,9 @@ export function measureMatch(root: HTMLElement, match: string, scale: number): R
     full += t.data;
     nodes.push(t);
   }
-  const idx = full.indexOf(match);
-  if (idx === -1) return [];
-  const end = idx + match.length;
+  const found = findMatch(full, match);
+  if (!found) return [];
+  const [idx, end] = found;
   const locate = (pos: number, preferEnd: boolean) => {
     for (let i = nodes.length - 1; i >= 0; i--) {
       const s = starts[i];
