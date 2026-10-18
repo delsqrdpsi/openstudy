@@ -15,7 +15,6 @@ export async function planLesson(input: {
   materials: { name: string; text: string }[];
   intake?: { role: "tutor" | "student"; text: string }[];
   imagesEnabled: boolean;
-  figures?: string;
   model?: string;
   signal?: AbortSignal;
 }): Promise<{ plan: LessonPlan; costUsd: number }> {
@@ -24,9 +23,7 @@ export async function planLesson(input: {
     input.imagesEnabled
       ? " For each section, suggest zero to two pictures a pencil-sketch model could draw: concrete, visual, under 30 words, with snake_case ids."
       : " Leave images empty."
-  } Section ids are snake_case.${
-    input.figures ? ` These interactive models exist and the tutor can show them; mention a fitting one by name in a section's example field as "model: <name>":\n${input.figures}` : ""
-  } Respond only with the JSON object.`;
+  } Section ids are snake_case. Respond only with the JSON object.`;
   // Up to 30k characters per file and 150k in all: enough to plan from, small enough to stay fast.
   let budget = 150_000;
   const mats = input.materials.length

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { getFigure, importFigure, type FigureMeta } from "./index";
 import { log } from "../log";
@@ -21,6 +21,16 @@ export interface BuildJob {
   figure?: FigureMeta;
 }
 
+/**
+ * Builds need the Anatomy skill installed for the claude CLI
+ * (npx skills add wheresryan22/anatomy -g -a claude-code). Without it a build
+ * can only fail, so the tutor is not offered builds at all.
+ */
+export function anatomyInstalled(): boolean {
+  const dirs = [process.env.ANATOMY_SKILL_DIR, join(homedir(), ".claude", "skills", "anatomy"), join(homedir(), ".agents", "skills", "anatomy")];
+  return dirs.some((d) => !!d && existsSync(join(d, "SKILL.md")));
+}
+
 const jobs = new Map<string, BuildJob>();
 export const listJobs = () => [...jobs.values()];
 export const getJob = (id: string) => jobs.get(id) ?? null;
@@ -35,7 +45,8 @@ export function startBuild(opts: { name: string; concept: string; onDone?: (job:
   const model = process.env.FIGURE_MODEL ?? "opus";
   const prompt =
     // The concept is plain words (cleaned upstream and approved by the student); it is quoted as data, not instructions.
-    `/anatomy Build a Figure (40 to 80 parts, no WebGL, no 3D mode) that explains the concept quoted here: "${opts.concept.replace(/"/g, "'")}". ` +
+    `/anatomy Build a Figure (40 to 80 parts, no WebGL, no 3D mode) of the real object described here: "${opts.concept.replace(/"/g, "'")}". ` +
+    `Draw that actual object as it is really built, its real parts in their real places, each part labelled; do not invent a different object as a metaphor for it. ` +
     `It is for a student's whiteboard, so keep the card compact and the motion calm. Write a framework-free Node build script in ./${name}/build.mjs that imports the kit from the skill folder, ` +
     `build the LIGHT theme page as ./${name}/${name}-light.html, run the audit and line checks, and stop when the page exists. Do not publish anything.`;
   const args = ["-p", prompt, "--output-format", "json", "--model", model, "--permission-mode", "acceptEdits", "--allowedTools", "Bash,Read,Write,Edit,Glob,Grep,Skill", "--max-budget-usd", process.env.FIGURE_BUDGET_USD ?? "6"];

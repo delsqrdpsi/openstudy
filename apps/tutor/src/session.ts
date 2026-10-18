@@ -15,9 +15,9 @@ import type { Store } from "./store";
 import { LessonEventSchema, LessonPlanSchema } from "@openstudy/shared";
 import { intakeMessage, tutorSystemPrompt } from "./prompts";
 import { planLesson, planForTutor } from "./planner";
-import { figuresForPrompt, getFigure, listFigures } from "./figures";
+import { getFigure } from "./figures";
 import { pageBlockFor, sourcesAsMaterials, sourcesForPrompt } from "./sources";
-import { startBuild } from "./figures/builder";
+import { startBuild, anatomyInstalled } from "./figures/builder";
 import { log } from "./log";
 import { UsageMeter, activeMeter, setActiveMeter, type TurnUsage } from "./usage";
 import { UsageSchema } from "@openstudy/shared";
@@ -133,7 +133,7 @@ export class Session {
   }
 
   private startPlanner(topic: string, materials: { name: string; text: string }[], intake?: { role: "tutor" | "student"; text: string }[]) {
-    this.plan = planLesson({ topic, materials, intake, imagesEnabled: !!this.images, figures: figuresForPrompt(listFigures()), signal: this.planAbort.signal })
+    this.plan = planLesson({ topic, materials, intake, imagesEnabled: !!this.images, signal: this.planAbort.signal })
       .then(({ plan, costUsd }) => {
         if (this.closed) return plan;
         this.meter.plan(costUsd);
@@ -454,10 +454,13 @@ export class Session {
     }
   }
 
+  /** Models built for this lesson; the shared library is never placed on its own. */
+  private builtFigures = new Set<string>();
+
   private placeFigure(s: { id: string; column: number; name: string; caption?: string }) {
-    const fig = getFigure(s.name);
+    const fig = this.builtFigures.has(s.name) ? getFigure(s.name) : null;
     if (!fig) {
-      this.out({ type: "debug", text: `no figure named ${s.name}` });
+      this.out({ type: "debug", text: `figure ${s.name} was not built for this lesson; not placed` });
       return;
     }
     this.emit({
@@ -483,6 +486,10 @@ export class Session {
    */
   private requestFigure(name: string, concept: string) {
     if (this.buildsRequested >= 1 || this.offer) return;
+    if (!anatomyInstalled()) {
+      log.warn("model build requested but the Anatomy skill is not installed (npx skills add wheresryan22/anatomy -g -a claude-code)");
+      return;
+    }
     const clean = cleanConcept(concept);
     if (!clean) return;
     this.offer = { id: nanoid(8), name, concept: clean };
@@ -517,6 +524,7 @@ export class Session {
             : [{ type: "block.add", block: { id: noteId, type: "html", column, html: `<i>The model build did not finish: ${escapeHtml(job.error ?? "unknown error")}</i>` } }];
         // The lesson may have been closed or reopened in another tab by now: deliver to whoever has the board.
         const live = Session.live.get(boardId);
+        if (job.status === "done" && job.figure) live?.builtFigures.add(job.figure.name);
         for (const e of events) {
           if (live) live.update(e);
           else store.appendEvent(boardId, e);
@@ -614,7 +622,7 @@ export class Session {
       const seed = await this.seedFor();
       if (seed) prompt = `${seed}\n\n${prompt}`;
       result = await this.brain.turn({
-        system: tutorSystemPrompt({ imagesEnabled: !!this.images, figures: figuresForPrompt(listFigures()), sources: sourcesForPrompt(this.sources) }),
+        system: tutorSystemPrompt({ imagesEnabled: !!this.images, builds: anatomyInstalled(), sources: sourcesForPrompt(this.sources) }),
         userText: prompt,
         signal,
         onText: (t) => parser.feed(t),
