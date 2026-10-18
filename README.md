@@ -28,25 +28,53 @@ The plan and the reasoning behind it are in [PLAN.md](PLAN.md).
       shown on the board in sandboxed frames; animated `@motion` diagrams for
       live motion; "build me a model" jobs that run Anatomy in the background
 - [x] Hosted voice: Deepgram Aura-2 and Nova behind the tutor server, barge-in kept
-- [ ] Next: image and scanned-PDF reading, source pages on the board
+- [x] Teach from a folder: point it at your course slides, PDFs and
+      screenshots; pages come onto the board as pictures and the tutor marks
+      on their words (text layer from pdf.js, local OCR for scans and images)
 
 ## Run it
 
-You need the `claude` CLI logged in to your Claude plan. Nothing else is
-required; pictures need an image key (see `.env.example`).
+You need Node 22, pnpm, and the `claude` CLI logged in to your Claude plan
+(`claude` once in a terminal, then sign in). That is the only hard
+requirement: the tutor and the planner bill to that plan, not to an API key.
 
 ```bash
 pnpm install
-cp .env.example .env     # optional: image keys, models
+cp .env.example .env     # add keys here, see the next section
 pnpm dev                 # web on http://localhost:3000, tutor server on :8787
 ```
 
-Type what you want to learn on the home page. The tutor asks a question or
-two, plans, and starts. Answer in the box at the bottom or turn the mic on
-(Chrome or Edge). Scroll to pan, ctrl or cmd plus scroll (or pinch) to zoom,
-drag on empty paper to pan, hold space to drag anywhere.
+Type what you want to learn on the home page, or point it at a folder of
+slides and PDFs with "Look inside". The tutor asks a question or two, plans,
+and starts. Answer in the box at the bottom or turn the mic on. Scroll to
+pan, ctrl or cmd plus scroll (or pinch) to zoom, drag on empty paper to pan,
+hold space to drag anywhere.
 
 The scripted demo lesson on the home page runs with no model at all.
+
+## Keys
+
+Put them in `.env` at the repo root (the tutor server loads it) or export
+them in your shell. The file never leaves your machine; the browser talks to
+the tutor server, which holds the keys.
+
+| Key | What it unlocks | Needed? | Where to get it |
+| --- | --- | --- | --- |
+| Claude login (no key) | The tutor, the planner, "build me a model" jobs | Yes | `claude` CLI, sign in with your Claude account |
+| `GEMINI_API_KEY` | Pictures on the board (Gemini 2.5 Flash Image, the default) | For pictures | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
+| `OPENAI_API_KEY` | Pictures with gpt-image-1 instead (`IMAGES=openai`) | Alternative | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| `FAL_KEY` | Pictures with Flux instead (`IMAGES=fal`) | Alternative | [fal.ai/dashboard/keys](https://fal.ai/dashboard/keys) |
+| `DEEPGRAM_API_KEY` | Hosted voice: Aura-2 speech and Nova listening, fast and any browser | Recommended | [console.deepgram.com](https://console.deepgram.com) |
+
+Without any key the lesson still runs: diagrams are drawn as SVG, pictures
+are skipped, and the browser's own speech synthesis and recognition are used
+(the mic then needs Chrome or Edge). Set one image key and one voice key for
+the full experience. Models, persona, ports and storage paths are also in
+`.env.example`, each with its default.
+
+Rough running costs, shown live in the small ring at the top of a lesson:
+the Claude plan covers the tutor; a picture is about a cent or two; an hour
+of Deepgram voice is under a dollar.
 
 ## How it is put together
 
@@ -66,6 +94,11 @@ The scripted demo lesson on the home page runs with no model at all.
   milliseconds. Talking over the tutor stops it. Without a key, the browser's
   own speech synthesis and recognition are used (the mic then needs Chrome or
   Edge). The board keeps step with the voice either way.
+- Sources: a folder you point at is scanned for PDFs, decks (pptx, odp, key,
+  converted with LibreOffice when installed), images and text. Pages are
+  rendered to pictures with word boxes from the PDF text layer; scans and
+  screenshots get boxes from local OCR (tesseract, no key, no network). The
+  tutor places a page with `@page` and marks on it with `@annotate`.
 - Interactive models come from `figures/` (see its README). Each is a
   self-contained page built with the Anatomy skill, shown in a sandboxed
   frame. The tutor places one with `@figure`, draws simple motion with
