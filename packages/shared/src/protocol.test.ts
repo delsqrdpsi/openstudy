@@ -88,6 +88,10 @@ describe("protocol", () => {
     ]);
   });
 
+  it("parses continue", () => {
+    expect(parseProtocol("@say Next up, the rack.\n@continue\n").signals).toEqual([{ type: "continue" }]);
+  });
+
   it("parses ask options", () => {
     const { signals } = parseProtocol('@say Which one?\n@ask options="A motor burnout|A logic hang|A broken sensor"\n');
     expect(signals).toEqual([{ type: "ask", options: ["A motor burnout", "A logic hang", "A broken sensor"] }]);

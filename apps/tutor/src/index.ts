@@ -159,6 +159,9 @@ wss.on("connection", (ws: WebSocket) => {
         case "interrupt":
           session?.interrupt(msg.heard);
           break;
+        case "continue":
+          await session?.continue();
+          break;
       }
     } catch (err) {
       log.error(err);

@@ -45,12 +45,22 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
   const pacer = useRef<Pacer | null>(null);
   /** Spoken lines of the current turn that reached the student. */
   const heard = useRef(0);
+  /** Pending auto-continue after a @continue turn has been heard. */
+  const autoTimer = useRef<number | null>(null);
 
   const land = useCallback((item: PacedItem) => {
     if (item.kind === "turn") {
       if (item.state === "thinking") heard.current = 0;
       setTurn(item.state);
       setOptions(item.state === "waiting" ? (item.options ?? []) : []);
+      if (item.state === "waiting" && item.auto) {
+        // The tutor is not waiting for an answer: once the narration has played, keep going.
+        if (autoTimer.current) window.clearTimeout(autoTimer.current);
+        autoTimer.current = window.setTimeout(() => {
+          autoTimer.current = null;
+          if (ws.current?.readyState === WebSocket.OPEN) ws.current.send(JSON.stringify({ type: "continue" }));
+        }, 600);
+      }
       return;
     }
     const e = item.event;
@@ -134,7 +144,7 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
             // A new turn: the student spoke, so whatever was still pending lands now.
             getPacer().flush();
             land({ kind: "turn", state: m.state });
-          } else getPacer().push({ kind: "turn", state: m.state, options: m.options });
+          } else getPacer().push({ kind: "turn", state: m.state, options: m.options, auto: m.auto });
           break;
         case "error":
           setError(m.message);
@@ -164,6 +174,10 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
     (text: string) => {
       const t = text.trim();
       if (!t) return;
+      if (autoTimer.current) {
+        window.clearTimeout(autoTimer.current);
+        autoTimer.current = null;
+      }
       pacer.current?.flush();
       setTranscript((list) => [...list, { kind: "user", text: t }]);
       setOptions([]);
@@ -174,6 +188,10 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
 
   /** Stop the tutor. Lines not yet heard are dropped here and taken off the saved board by the server. */
   const interrupt = useCallback(() => {
+    if (autoTimer.current) {
+      window.clearTimeout(autoTimer.current);
+      autoTimer.current = null;
+    }
     pacer.current?.discard();
     send({ type: "interrupt", heard: heard.current });
   }, [send]);

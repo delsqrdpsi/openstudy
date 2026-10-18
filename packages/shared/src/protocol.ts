@@ -24,6 +24,7 @@ import { BlockSchema } from "./blocks";
  *   @annotate id=<id> target=<id> kind=circle match="word or phrase"
  *   @focus id=<id>
  *   @remove id=<id>
+ *   @continue       end the turn but keep teaching once the narration has played
  *   @ask            end the turn and wait for the student
  *   @ask options="first choice|second choice|third choice"
  *   @done           the lesson is finished
@@ -32,6 +33,7 @@ import { BlockSchema } from "./blocks";
 /** `ask` may carry quick-check options the student can click instead of typing. */
 export type ProtocolSignal =
   | { type: "ask"; options?: string[] }
+  | { type: "continue" }
   | { type: "done" }
   | { type: "error"; message: string; line: string }
   /** The tutor wants a library figure on the board; the server resolves name to src. */
@@ -126,6 +128,10 @@ export class ProtocolParser {
         this.sink.signal(options?.length ? { type: "ask", options } : { type: "ask" });
         return;
       }
+      case "continue":
+        this.closeOpen();
+        this.sink.signal({ type: "continue" });
+        return;
       case "done":
         this.closeOpen();
         this.sink.signal({ type: "done" });

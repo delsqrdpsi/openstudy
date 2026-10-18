@@ -20,7 +20,7 @@ import { startBuild } from "./figures/builder";
 import { log } from "./log";
 
 /** How long the first teaching turn waits for the planner before going without it. */
-const PLAN_WAIT_MS = Number(process.env.PLAN_WAIT_MS ?? 12000);
+const PLAN_WAIT_MS = Number(process.env.PLAN_WAIT_MS ?? 4000);
 
 /**
  * One lesson. Owns the transcript, the board state, the parser, the planner
@@ -40,7 +40,6 @@ export class Session {
   private turns = 0;
   private plan: Promise<LessonPlan | null> = Promise.resolve(null);
   private planDelivered = false;
-  private bridged = false;
   private latePlan: LessonPlan | null = null;
   /** Pictures generated ahead of time from the plan, by block id. */
   private readyImages = new Map<string, Promise<string>>();
@@ -48,6 +47,9 @@ export class Session {
   private resumeTranscript: string | null = null;
   private recovered = false;
   private buildsRequested = 0;
+  /** Turns in a row the tutor kept going without asking anything. */
+  private autoRun = 0;
+  private awaitingContinue = false;
   private figureBase = process.env.TUTOR_PUBLIC_URL ?? `http://localhost:${process.env.TUTOR_PORT ?? 8787}`;
 
   constructor(
@@ -92,7 +94,6 @@ export class Session {
     this.send({ type: "history", log });
     this.resumeTranscript = transcriptOf(log);
     this.planDelivered = true;
-    this.bridged = true;
     if (row.planJson) {
       const parsed = LessonPlanSchema.safeParse(JSON.parse(row.planJson));
       if (parsed.success) this.plan = Promise.resolve(parsed.data);
@@ -109,6 +110,8 @@ export class Session {
   }
 
   async user(text: string) {
+    this.awaitingContinue = false;
+    this.autoRun = 0;
     this.store.append(this.id, { kind: "user", text });
     if (this.state === "thinking" || this.state === "speaking") {
       // Student spoke over the tutor: stop, remember what was heard, answer.
@@ -118,17 +121,10 @@ export class Session {
     }
     if (!this.planDelivered) {
       this.setState("thinking");
-      // If the plan is not ready yet, keep the conversation going with one
-      // more probing question instead of a long silence.
-      const quick = await Promise.race([this.plan, new Promise<null>((r) => setTimeout(() => r(null), 2500))]);
-      if (!quick && !this.bridged) {
-        this.bridged = true;
-        await this.runTurn(
-          `${text}\n\n[The plan is still being prepared. Do not start teaching yet. React to what they said in one or two spoken lines, then ask ONE more specific question about their goal or background (something that changes how you would teach it), then @ask.]`,
-        );
-        return;
-      }
-      const plan = quick ?? (await Promise.race([this.plan, new Promise<null>((r) => setTimeout(() => r(null), PLAN_WAIT_MS))]));
+      // Give the planner a moment; if it is late, start teaching on a provisional
+      // plan rather than asking the student another question to fill time.
+      const quick = await Promise.race([this.plan, new Promise<null>((r) => setTimeout(() => r(null), PLAN_WAIT_MS))]);
+      const plan = quick;
       if (plan) {
         this.planDelivered = true;
         await this.runTurn(`${planForTutor(plan)}\n\nThe student answered your intake questions: "${text}"\nAdapt the plan to that answer (skip or reorder sections if needed) before writing it.`);
@@ -173,9 +169,21 @@ export class Session {
     }
   }
 
-  private setState(s: TurnState, options?: string[]) {
+  private setState(s: TurnState, options?: string[], auto = false) {
     this.state = s;
-    this.send(options ? { type: "turn", state: s, options } : { type: "turn", state: s });
+    const m: ServerMessage = { type: "turn", state: s };
+    if (options) m.options = options;
+    if (auto) m.auto = true;
+    this.send(m);
+  }
+
+  /** The client reports the @continue narration has played: keep teaching. */
+  async continue() {
+    if (!this.awaitingContinue || this.state !== "waiting") return;
+    this.awaitingContinue = false;
+    this.autoRun += 1;
+    const nudge = this.autoRun >= 4 ? " You have been talking for a while now; make the next step land with a real check question." : "";
+    await this.runTurn(`[The student is listening. Carry on with the next step.${nudge}]`);
   }
 
   private emit(e: LessonEvent) {
@@ -261,7 +269,7 @@ export class Session {
     this.heard = null;
     this.turns += 1;
     this.setState("thinking");
-    let ended: "ask" | "done" | null = null;
+    let ended: "ask" | "continue" | "done" | null = null;
     let options: string[] | undefined;
     const parser = new ProtocolParser({
       event: (e) => this.emit(e),
@@ -269,7 +277,8 @@ export class Session {
         if (s.type === "ask") {
           ended = "ask";
           options = s.options;
-        } else if (s.type === "done") ended = "done";
+        } else if (s.type === "continue") ended = "continue";
+        else if (s.type === "done") ended = "done";
         else if (s.type === "figure") this.placeFigure(s);
         else if (s.type === "build_figure") this.requestFigure(s.name, s.concept);
         else this.send({ type: "debug", text: `protocol: ${s.message} in "${s.line}"` });
@@ -323,6 +332,12 @@ export class Session {
       this.setState("waiting");
       return;
     }
+    if (ended === "continue") {
+      this.awaitingContinue = true;
+      this.setState("waiting", undefined, true);
+      return;
+    }
+    this.autoRun = 0;
     this.setState(ended === "done" ? "done" : "waiting", options);
   }
 }

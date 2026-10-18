@@ -9,7 +9,7 @@ import type { LessonEvent, TurnState } from "@openstudy/shared";
  * (fast enough to finish with it), diagrams and marks land as soon as the
  * line they belong to starts, and "your turn" waits for the voice to stop.
  */
-export type PacedItem = { kind: "event"; event: LessonEvent } | { kind: "turn"; state: TurnState; options?: string[] };
+export type PacedItem = { kind: "event"; event: LessonEvent } | { kind: "turn"; state: TurnState; options?: string[]; auto?: boolean };
 
 export interface PacerHooks {
   /** Land an item on the board (state, transcript, caret). */
