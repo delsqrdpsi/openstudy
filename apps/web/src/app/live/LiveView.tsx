@@ -53,7 +53,14 @@ export function LiveView() {
     } catch {
       /* no materials */
     }
-    live.start({ topic: topic || "Help me learn something new", materials, model: params.get("model") ?? undefined });
+    let sources: string[] = [];
+    try {
+      const raw = sessionStorage.getItem("openstudy.sources");
+      if (raw) sources = JSON.parse(raw);
+    } catch {
+      /* none */
+    }
+    live.start({ topic: topic || "Help me learn something new", materials, model: params.get("model") ?? undefined, sources });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

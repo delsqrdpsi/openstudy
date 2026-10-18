@@ -199,3 +199,46 @@ export function wavyUnderline(r: Rect, rnd: () => number): { d: string; length: 
   }
   return { d, length };
 }
+
+/**
+ * Rects for a phrase on a rendered page, from its positioned text boxes.
+ * Boxes are fractions of the page; W and H turn them into local pixels.
+ */
+export function rectsForBoxes(boxes: { text: string; x: number; y: number; w: number; h: number }[], match: string, W: number, H: number): Rect[] {
+  if (!boxes.length || !match) return [];
+  // Join box texts with spaces and remember each box's char span.
+  let full = "";
+  const spans: [number, number][] = [];
+  for (const b of boxes) {
+    const start = full.length;
+    full += b.text;
+    spans.push([start, full.length]);
+    full += " ";
+  }
+  const found = findMatch(full, match);
+  if (!found) return [];
+  const [s, e] = found;
+  const hits: Rect[] = [];
+  for (let i = 0; i < boxes.length; i++) {
+    const [bs, be] = spans[i];
+    if (be <= s || bs >= e) continue;
+    const b = boxes[i];
+    // Trim a box to the matched part when the phrase starts or ends inside it.
+    const len = Math.max(1, be - bs);
+    const from = Math.max(0, s - bs) / len;
+    const to = Math.min(len, e - bs) / len;
+    hits.push({ x: (b.x + b.w * from) * W, y: b.y * H, w: b.w * (to - from) * W, h: b.h * H });
+  }
+  // Merge boxes on the same line.
+  const out: Rect[] = [];
+  for (const r of hits.sort((a, b) => a.y - b.y || a.x - b.x)) {
+    const last = out[out.length - 1];
+    if (last && Math.abs(last.y - r.y) < r.h * 0.6) {
+      const right = Math.max(last.x + last.w, r.x + r.w);
+      last.x = Math.min(last.x, r.x);
+      last.w = right - last.x;
+      last.h = Math.max(last.h, r.h);
+    } else out.push({ ...r });
+  }
+  return out;
+}

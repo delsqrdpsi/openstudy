@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { BoardSummarySchema, type BoardSummary } from "@openstudy/shared";
+import { BoardSummarySchema, SourceSummarySchema, type BoardSummary, type SourceSummary } from "@openstudy/shared";
 import { TUTOR_HTTP } from "@/board/useLiveSession";
 import { readMaterial, type Material } from "@/lib/materials";
 
@@ -19,6 +19,45 @@ export default function Home() {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [skipped, setSkipped] = useState<string[]>([]);
   const [boards, setBoards] = useState<BoardSummary[] | null>(null);
+  // The student's folder of course material, prepared by the tutor server.
+  const [folder, setFolder] = useState("");
+  const [found, setFound] = useState<{ path: string; name: string; kind: string; size: number }[] | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [sources, setSources] = useState<SourceSummary[]>([]);
+  const [scanning, setScanning] = useState<"idle" | "scanning" | "preparing">("idle");
+  const [folderError, setFolderError] = useState<string | null>(null);
+
+  const scan = async () => {
+    setFolderError(null);
+    setScanning("scanning");
+    try {
+      const r = await fetch(`${TUTOR_HTTP}/sources/scan`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dir: folder }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? r.statusText);
+      setFound(j.found);
+      setPicked(new Set((j.found as { path: string }[]).map((f) => f.path)));
+    } catch (e) {
+      setFolderError(e instanceof Error ? e.message : String(e));
+      setFound(null);
+    } finally {
+      setScanning("idle");
+    }
+  };
+  const prepare = async () => {
+    setScanning("preparing");
+    try {
+      const r = await fetch(`${TUTOR_HTTP}/sources/scan`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dir: folder, files: [...picked] }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? r.statusText);
+      const prepared = (j.prepared as unknown[]).map((p) => SourceSummarySchema.parse(p)).filter((p) => p.id);
+      setSources((s) => [...s.filter((x) => !prepared.some((p) => p.id === x.id)), ...prepared]);
+      setFound(null);
+    } catch (e) {
+      setFolderError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setScanning("idle");
+    }
+  };
 
   const loadBoards = () =>
     fetch(`${TUTOR_HTTP}/boards`)
@@ -54,13 +93,15 @@ export default function Home() {
 
   const start = () => {
     const t = topic.trim();
-    if (!t && materials.length === 0) return;
+    if (!t && materials.length === 0 && sources.length === 0) return;
     try {
       sessionStorage.setItem("openstudy.materials", JSON.stringify(materials));
+      sessionStorage.setItem("openstudy.sources", JSON.stringify(sources.map((s) => s.id)));
     } catch {
       /* ignore */
     }
-    const q = new URLSearchParams({ topic: t || `Teach me what is in ${materials.map((m) => m.name).join(", ")}`, model });
+    const names = [...materials.map((m) => m.name), ...sources.map((s) => s.name)];
+    const q = new URLSearchParams({ topic: t || `Teach me what is in ${names.join(", ")}`, model });
     router.push(`/live?${q.toString()}`);
   };
 
@@ -113,11 +154,78 @@ export default function Home() {
                 ))}
               </select>
             </div>
-            <button className="ui-btn primary px-4" onClick={start} disabled={reading > 0 || (!topic.trim() && materials.length === 0)}>
+            <button className="ui-btn primary px-4" onClick={start} disabled={reading > 0 || scanning !== "idle" || (!topic.trim() && materials.length === 0 && sources.length === 0)}>
               Start lesson ↵
             </button>
           </div>
         </div>
+
+        <section className="mt-6">
+          <div className="text-[12px] font-semibold uppercase tracking-wide text-neutral-400">Teach from a folder on this computer</div>
+          <div className="ui-card mt-2 p-3">
+            <div className="flex gap-2">
+              <input
+                className="min-w-0 flex-1 rounded-lg border border-neutral-200 bg-transparent px-3 py-1.5 text-[14px] outline-none placeholder:text-neutral-400"
+                placeholder="/Users/you/Courses/CS229/week3"
+                value={folder}
+                onChange={(e) => setFolder(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && folder.trim()) scan();
+                }}
+                aria-label="Folder path"
+              />
+              <button className="ui-btn" onClick={scan} disabled={!folder.trim() || scanning !== "idle"}>
+                {scanning === "scanning" ? "Looking..." : "Look inside"}
+              </button>
+            </div>
+            {folderError && <p className="mt-2 text-[12px] text-[var(--coral)]">{folderError}</p>}
+            {found && (
+              <div className="mt-3">
+                {found.length === 0 ? (
+                  <p className="text-[12px] text-neutral-500">No slides, PDFs, pictures or notes in there.</p>
+                ) : (
+                  <>
+                    <ul className="max-h-48 space-y-1 overflow-y-auto">
+                      {found.map((f) => (
+                        <li key={f.path} className="flex items-center gap-2 text-[13px]">
+                          <input
+                            type="checkbox"
+                            checked={picked.has(f.path)}
+                            onChange={(e) => {
+                              const next = new Set(picked);
+                              if (e.target.checked) next.add(f.path);
+                              else next.delete(f.path);
+                              setPicked(next);
+                            }}
+                            aria-label={`Include ${f.name}`}
+                          />
+                          <span className="truncate">{f.name}</span>
+                          <span className="text-[11px] text-neutral-400">{f.kind}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <button className="ui-btn primary mt-2" onClick={prepare} disabled={picked.size === 0 || scanning !== "idle"}>
+                      {scanning === "preparing" ? "Reading pages..." : `Use ${picked.size} file${picked.size === 1 ? "" : "s"}`}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+            {sources.length > 0 && (
+              <ul className="mt-3 flex flex-wrap gap-2">
+                {sources.map((s) => (
+                  <li key={s.id} className="flex items-center gap-2 rounded-full bg-neutral-100 px-3 py-1 text-[13px]" title={s.note}>
+                    {s.name}
+                    <span className="text-[11px] text-neutral-500">{s.pages ? `${s.pages} pages` : `${Math.round(s.chars / 1000)}k chars`}</span>
+                    <button className="text-neutral-400 hover:text-neutral-700" onClick={() => setSources((list) => list.filter((x) => x.id !== s.id))} aria-label={`Remove ${s.name}`}>
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
 
         {boards && boards.length > 0 && (
           <section className="mt-8">

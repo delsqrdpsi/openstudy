@@ -6,6 +6,7 @@ import { createImages, imageStore } from "./images";
 import { Session } from "./session";
 import { Store } from "./store";
 import { listFigures, readFigureFile } from "./figures";
+import { listSources, prepareSource, readSourceFile, scanFolder } from "./sources";
 import { listJobs } from "./figures/builder";
 import { bridgeTranscription, SAMPLE_RATE, speak, voiceConfig, VoiceError } from "./voice/deepgram";
 import { log } from "./log";
@@ -41,6 +42,41 @@ const http = createServer((req, res) => {
   }
   if (url.pathname === "/boards" && req.method === "GET") return json(res, 200, store.listBoards());
   if (url.pathname === "/figures" && req.method === "GET") return json(res, 200, { figures: listFigures(), jobs: listJobs() });
+  if (url.pathname === "/sources" && req.method === "GET") return json(res, 200, { sources: listSources() });
+  if (url.pathname === "/sources/scan" && req.method === "POST") {
+    void (async () => {
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      try {
+        const { dir, files } = JSON.parse(body || "{}") as { dir?: string; files?: string[] };
+        if (!dir) return json(res, 400, { error: "dir is required" });
+        const found = scanFolder(dir);
+        if (!files) return json(res, 200, { found });
+        const chosen = found.filter((f) => files.includes(f.path));
+        const prepared = [];
+        for (const f of chosen) {
+          try {
+            prepared.push(await prepareSource(f.path));
+          } catch (e) {
+            prepared.push({ id: "", name: f.name, kind: f.kind, pages: 0, chars: 0, note: `could not read: ${e instanceof Error ? e.message : e}` });
+          }
+        }
+        json(res, 200, { prepared });
+      } catch (e) {
+        json(res, 400, { error: e instanceof Error ? e.message : String(e) });
+      }
+    })();
+    return;
+  }
+  const srcMatch = /^\/sources\/([a-f0-9]{12})\/([\w.-]+)$/.exec(url.pathname);
+  if (srcMatch && req.method === "GET") {
+    const file = readSourceFile(srcMatch[1], srcMatch[2]);
+    if (file) {
+      res.writeHead(200, { "content-type": file.type, "cache-control": "public, max-age=3600", ...CORS });
+      res.end(file.bytes);
+      return;
+    }
+  }
   const figMatch = /^\/figures\/([a-z0-9][a-z0-9-]*)\/?(.*)$/.exec(url.pathname);
   if (figMatch && req.method === "GET") {
     const file = readFigureFile(figMatch[1], decodeURIComponent(figMatch[2]));
@@ -150,8 +186,8 @@ wss.on("connection", (ws: WebSocket) => {
           }
           if (!msg.topic.trim()) return send({ type: "error", message: "tell me what you want to learn" });
           session = new Session(createBrain({ model: msg.model }), images, store, send);
-          log.info("session", session.id, "topic:", msg.topic.slice(0, 80));
-          await session.start(msg.topic, msg.materials);
+          log.info("session", session.id, "topic:", msg.topic.slice(0, 80), msg.sources.length ? `sources: ${msg.sources.length}` : "");
+          await session.start(msg.topic, msg.materials, msg.sources);
           break;
         }
         case "user":

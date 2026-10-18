@@ -2,7 +2,8 @@
 import { useMemo } from "react";
 import type { AnnotationBlock } from "@openstudy/shared";
 import { ANNOTATION_COLORS } from "@openstudy/shared";
-import { hashId, markerPath, measureMatch, seeded, union, wavyUnderline, wobblyEllipse, type Rect } from "../annotations";
+import { hashId, markerPath, measureMatch, rectsForBoxes, seeded, union, wavyUnderline, wobblyEllipse, type Rect } from "../annotations";
+import type { TextBox } from "@openstudy/shared";
 
 interface Props {
   annotations: AnnotationBlock[];
@@ -11,6 +12,8 @@ interface Props {
   scale: number;
   /** Changes whenever the target's content or size changes, to re-measure. */
   version: number;
+  /** For page blocks: positioned text, so marks land on words of the page image. */
+  boxes?: TextBox[];
 }
 
 type Drawn =
@@ -18,7 +21,7 @@ type Drawn =
   | { id: string; kind: "circle"; color: string; d: string; length: number }
   | { id: string; kind: "underline"; color: string; paths: { d: string; length: number }[] };
 
-export function AnnotationLayer({ annotations, targetEl, scale, version }: Props) {
+export function AnnotationLayer({ annotations, targetEl, scale, version, boxes }: Props) {
   const drawn = useMemo<Drawn[]>(() => {
     const out: Drawn[] = [];
     if (!targetEl) return out;
@@ -29,6 +32,9 @@ export function AnnotationLayer({ annotations, targetEl, scale, version }: Props
         const W = r.width / scale;
         const H = r.height / scale;
         rects = [{ x: a.region.x * W, y: a.region.y * H, w: a.region.w * W, h: a.region.h * H }];
+      } else if (a.match && boxes) {
+        const r = targetEl.getBoundingClientRect();
+        rects = rectsForBoxes(boxes, a.match, r.width / scale, r.height / scale);
       } else if (a.match) rects = measureMatch(targetEl, a.match, scale);
       // No match: skip the mark. A highlight over the whole block is worse than none.
       if (!rects.length) continue;
@@ -43,7 +49,7 @@ export function AnnotationLayer({ annotations, targetEl, scale, version }: Props
     return out;
     // version is a re-measure trigger from the ResizeObserver.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [annotations, targetEl, scale, version]);
+  }, [annotations, targetEl, scale, version, boxes]);
 
   if (!drawn.length) return null;
   return (

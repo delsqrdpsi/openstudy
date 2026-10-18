@@ -23,6 +23,7 @@ export function entryFromEvent(e: LessonEvent): TranscriptEntry | null {
       if (b.type === "svg") return { kind: "action", label: b.motion ? "Animation" : "Diagram", detail: b.caption, blockId: b.id };
       if (b.type === "image") return { kind: "action", label: "Sketch", detail: b.prompt, blockId: b.id };
       if (b.type === "embed") return { kind: "action", label: "Model", detail: b.title ?? b.caption, blockId: b.id };
+      if (b.type === "page") return { kind: "action", label: "Page", detail: `${b.source} p.${b.page}`, blockId: b.id };
       const verb = b.kind === "highlight" ? "Highlight" : b.kind === "circle" ? "Circle" : "Underline";
       return { kind: "action", label: verb, detail: b.match, blockId: b.target };
     }

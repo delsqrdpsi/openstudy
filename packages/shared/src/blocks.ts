@@ -31,6 +31,33 @@ export const SvgBlockSchema = z.object({
   motion: z.boolean().optional(),
 });
 
+/** A word or line of text on a rendered page, as fractions of the page box. */
+export const TextBoxSchema = z.object({
+  text: z.string(),
+  x: z.number(),
+  y: z.number(),
+  w: z.number(),
+  h: z.number(),
+});
+export type TextBox = z.infer<typeof TextBoxSchema>;
+
+/** A page of the student's own material (a slide, a PDF page, a photo) placed on the board. */
+export const PageBlockSchema = z.object({
+  id: BlockIdSchema,
+  type: z.literal("page"),
+  column: z.number().int().min(0).max(7),
+  /** Image of the page. */
+  src: z.string().min(1),
+  /** Source file name and page number, for the caption and the transcript. */
+  source: z.string(),
+  page: z.number().int().positive(),
+  /** Aspect ratio, width over height, so the layout knows the height before the image loads. */
+  aspect: z.number().positive().default(1.333),
+  /** Text on the page with positions; empty for images with no text layer. */
+  boxes: z.array(TextBoxSchema).default([]),
+  caption: z.string().optional(),
+});
+
 /** A self-contained interactive page (an Anatomy figure) shown in a sandboxed frame. */
 export const EmbedBlockSchema = z.object({
   id: BlockIdSchema,
@@ -74,6 +101,7 @@ export const BlockSchema = z.discriminatedUnion("type", [
   SvgBlockSchema,
   ImageBlockSchema,
   EmbedBlockSchema,
+  PageBlockSchema,
   AnnotationBlockSchema,
 ]);
 
@@ -81,6 +109,7 @@ export type HtmlBlock = z.infer<typeof HtmlBlockSchema>;
 export type SvgBlock = z.infer<typeof SvgBlockSchema>;
 export type ImageBlock = z.infer<typeof ImageBlockSchema>;
 export type EmbedBlock = z.infer<typeof EmbedBlockSchema>;
+export type PageBlock = z.infer<typeof PageBlockSchema>;
 export type AnnotationBlock = z.infer<typeof AnnotationBlockSchema>;
 export type Block = z.infer<typeof BlockSchema>;
 export type ContentBlock = Exclude<Block, AnnotationBlock>;

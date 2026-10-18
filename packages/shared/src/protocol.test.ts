@@ -88,6 +88,11 @@ describe("protocol", () => {
     ]);
   });
 
+  it("parses page placements", () => {
+    const { signals } = parseProtocol('@page id=slide_7 col=2 source="lecture3.pdf" page=7 caption="the key slide"\n');
+    expect(signals).toEqual([{ type: "page", id: "slide_7", column: 2, source: "lecture3.pdf", page: 7, caption: "the key slide" }]);
+  });
+
   it("parses continue", () => {
     expect(parseProtocol("@say Next up, the rack.\n@continue\n").signals).toEqual([{ type: "continue" }]);
   });

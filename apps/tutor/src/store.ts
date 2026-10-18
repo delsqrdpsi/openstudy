@@ -51,6 +51,20 @@ export class Store {
     // Added later: running usage totals per board.
     const cols = (this.db.prepare("pragma table_info(boards)").all() as { name: string }[]).map((c) => c.name);
     if (!cols.includes("usage_json")) this.db.exec("alter table boards add column usage_json text");
+    if (!cols.includes("sources_json")) this.db.exec("alter table boards add column sources_json text");
+  }
+
+  setSources(id: string, ids: string[]) {
+    this.db.prepare("update boards set sources_json = ? where id = ?").run(JSON.stringify(ids), id);
+  }
+
+  getSources(id: string): string[] {
+    const r = this.db.prepare("select sources_json from boards where id = ?").get(id) as { sources_json?: string | null } | undefined;
+    try {
+      return r?.sources_json ? (JSON.parse(r.sources_json) as string[]) : [];
+    } catch {
+      return [];
+    }
   }
 
   setUsage(id: string, usageJson: string) {

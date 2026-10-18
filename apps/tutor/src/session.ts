@@ -16,6 +16,7 @@ import { LessonPlanSchema } from "@openstudy/shared";
 import { intakeMessage, tutorSystemPrompt } from "./prompts";
 import { planLesson, planForTutor } from "./planner";
 import { figuresForPrompt, getFigure, listFigures } from "./figures";
+import { pageBlockFor, sourcesAsMaterials, sourcesForPrompt } from "./sources";
 import { startBuild } from "./figures/builder";
 import { log } from "./log";
 import { UsageMeter, setActiveMeter } from "./usage";
@@ -57,6 +58,7 @@ export class Session {
   private awaitingContinue = false;
   private pendingModel: string | null = null;
   readonly meter = new UsageMeter();
+  private sources: string[] = [];
   private figureBase = process.env.TUTOR_PUBLIC_URL ?? `http://localhost:${process.env.TUTOR_PORT ?? 8787}`;
 
   constructor(
@@ -69,10 +71,13 @@ export class Session {
     if (id) this.id = id;
   }
 
-  async start(topic: string, materials: { name: string; text: string }[]) {
+  async start(topic: string, materials: { name: string; text: string }[], sources: string[] = []) {
     this.board = emptyBoard(topic);
+    this.sources = sources;
     this.store.createBoard({ id: this.id, title: titleFrom(topic), topic, brain: this.brain.name, model: this.brain.model });
+    if (sources.length) this.store.setSources(this.id, sources);
     this.attachMeter();
+    materials = [...materials, ...sourcesAsMaterials(sources)];
     this.send({ type: "session", id: this.id, brain: this.brain.name, model: this.brain.model, title: titleFrom(topic) });
     // Plan while the intake conversation happens; usually ready before the student answers.
     this.plan = planLesson({ topic, materials, imagesEnabled: !!this.images, figures: figuresForPrompt(listFigures()) })
@@ -99,6 +104,7 @@ export class Session {
     const log = this.store.log(this.id);
     this.board = emptyBoard(row.topic);
     for (const e of log) if (e.kind === "event") this.board = applyEvent(this.board, e.event);
+    this.sources = this.store.getSources(this.id);
     const savedUsage = this.store.getUsage(this.id);
     if (savedUsage) {
       const parsed = UsageSchema.safeParse(JSON.parse(savedUsage));
@@ -278,6 +284,15 @@ export class Session {
     });
   }
 
+  private placePage(s: { id: string; column: number; source: string; page: number; caption?: string }) {
+    const p = pageBlockFor(this.sources, s.source, s.page, this.figureBase);
+    if (!p) {
+      this.send({ type: "debug", text: `no page ${s.page} in source ${s.source}` });
+      return;
+    }
+    this.emit({ type: "block.add", block: { id: s.id, type: "page", column: s.column, src: p.src, source: p.source, page: p.page, aspect: p.aspect, boxes: p.boxes, caption: s.caption } });
+  }
+
   private requestFigure(name: string, concept: string) {
     if (this.buildsRequested >= 1) return;
     this.buildsRequested += 1;
@@ -354,13 +369,14 @@ export class Session {
         } else if (s.type === "continue") ended = "continue";
         else if (s.type === "done") ended = "done";
         else if (s.type === "figure") this.placeFigure(s);
+        else if (s.type === "page") this.placePage(s);
         else if (s.type === "build_figure") this.requestFigure(s.name, s.concept);
         else this.send({ type: "debug", text: `protocol: ${s.message} in "${s.line}"` });
       },
     });
 
     const result = await this.brain.turn({
-      system: tutorSystemPrompt({ imagesEnabled: !!this.images, figures: figuresForPrompt(listFigures()) }),
+      system: tutorSystemPrompt({ imagesEnabled: !!this.images, figures: figuresForPrompt(listFigures()), sources: sourcesForPrompt(this.sources) }),
       userText,
       signal,
       onText: (t) => parser.feed(t),

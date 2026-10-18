@@ -15,8 +15,11 @@
     "figures:list": "tsx src/figures/cli.ts"
   },
   "dependencies": {
+    "@napi-rs/canvas": "1.0.11",
     "@openstudy/shared": "workspace:*",
+    "jszip": "3.10.2",
     "nanoid": "^6.0.2",
+    "pdfjs-dist": "6.4.299",
     "ws": "^8.22.0",
     "zod": "^4.3.3"
   },

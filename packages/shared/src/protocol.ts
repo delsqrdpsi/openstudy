@@ -20,6 +20,7 @@ import { BlockSchema } from "./blocks";
  *   <svg viewBox="0 0 300 200">...animated with <animate> or CSS...</svg>
  *   @end
  *   @figure id=<id> col=<n> name="<figure from the library>" caption="..."
+ *   @page id=<id> col=<n> source="<file name>" page=<n> caption="..."   (a page of the student's material)
  *   @build_figure name="<slug>" concept="what the model should show"
  *   @annotate id=<id> target=<id> kind=circle match="word or phrase"
  *   @focus id=<id>
@@ -38,6 +39,8 @@ export type ProtocolSignal =
   | { type: "error"; message: string; line: string }
   /** The tutor wants a library figure on the board; the server resolves name to src. */
   | { type: "figure"; id: string; column: number; name: string; caption?: string }
+  /** The tutor wants a page of the student's material on the board; the server resolves it. */
+  | { type: "page"; id: string; column: number; source: string; page: number; caption?: string }
   /** The tutor asks for a new interactive model to be built in the background. */
   | { type: "build_figure"; name: string; concept: string };
 
@@ -163,6 +166,17 @@ export class ProtocolParser {
         }
         const id = this.uniqueId(attrs.id ?? attrs.name);
         this.sink.signal({ type: "figure", id, column: num(attrs.col), name: attrs.name, caption: attrs.caption });
+        return;
+      }
+      case "page": {
+        this.closeOpen();
+        const page = parseInt(attrs.page ?? "1", 10);
+        if (!attrs.source || !Number.isFinite(page) || page < 1) {
+          this.sink.signal({ type: "error", message: "page needs source and page", line });
+          return;
+        }
+        const id = this.uniqueId(attrs.id ?? `page_${page}`);
+        this.sink.signal({ type: "page", id, column: num(attrs.col), source: attrs.source, page, caption: attrs.caption });
         return;
       }
       case "build_figure": {

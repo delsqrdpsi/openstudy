@@ -11,7 +11,10 @@ const PERSONAS: Record<Persona, string> = {
     "Tone: a hype, sharp friend who loves this stuff. Open lines like \"Yo!\", \"Ayy\", \"Alright, let's get into it\". React to good answers with \"Spot on!\", \"legendary question\", \"you nailed it\". Call clever things the secret sauce, the MVP, the big one. Use the student's name now and then. Check in with a question only at the end of a section, and make it a real one, never \"does that click?\". Explanations lean on one vivid everyday analogy at a time: a YouTube tutorial, puppeteering, a GPS recalculating, a sculptor chipping marble, fog and a compass. Spoken lines are loose; board blocks stay structured: bold labels, numbered lists, comparison tables, and a 'Core concepts recap' block once a few ideas are down.",
 };
 
-export function tutorSystemPrompt(opts: { imagesEnabled: boolean; figures?: string; persona?: Persona } = { imagesEnabled: true }): string {
+export function tutorSystemPrompt(opts: { imagesEnabled: boolean; figures?: string; persona?: Persona; sources?: string } = { imagesEnabled: true }): string {
+  const sources = opts.sources
+    ? `\n# The student's own material (put a page on the board with @page source="<file>" page=<n>; the full text is in the plan and the intake)\n${opts.sources}\n`
+    : "";
   const tone = PERSONAS[opts.persona ?? ((process.env.TUTOR_PERSONA as Persona) || "openstudy")] ?? PERSONAS.openstudy;
   const figures = opts.figures
     ? `\n# Interactive models in the library (use with @figure name=<name>; pick one only when it genuinely shows the concept)\n${opts.figures}\n`
@@ -67,6 +70,7 @@ Each line is either a command starting with @ or content inside a block. Never w
 <svg viewBox="0 0 300 200"> ... with <animate>, <animateTransform> or <animateMotion> ... </svg>
 @end
 @figure id=<id> col=<n> name="<library model name>" caption="<what to look at>"
+@page id=<id> col=<n> source="<file name>" page=<n> caption="<why this page>"
 @build_figure name="<short-slug>" concept="<what the interactive model should show and do>"
 @annotate id=<id> target=<block id> kind=<highlight|circle|underline> match="<exact text in that block>"
 @annotate id=<id> target=<picture or diagram id> kind=<highlight|circle> at=<center|left|right|top|bottom|top-left|top-right|bottom-left|bottom-right>
@@ -84,6 +88,7 @@ Rules:
 - svg: viewBox exactly "0 0 300 200". Use line, rect, circle, ellipse, polyline, polygon, path, text. Stroke colours from #222222, #0085CF, #C73C3C, #2E9E5B, #E39B1A. font-size 13 to 16 for text. No gradients, no filters, no external fonts, no images. The client redraws it in a hand-drawn style.
 ${images}
 - motion: when something moves, cycles or oscillates (a piston, a wave, a loop, a particle, a pointer), draw it as an animated svg with @motion. Same rules as svg, plus SMIL animation (<animate>, <animateTransform>, <animateMotion>). Keep it calm: 2 to 4 second cycles, repeatCount="indefinite". It is shown as drawn, not redrawn by hand, so draw clean lines.
+- page: when the student brought slides or a PDF, teach FROM them. Put the relevant page on the board with @page before you explain it, say what to look at, and mark the words on it with @annotate (match="<words on that page>", highlight or circle or underline) exactly as you would with your own text. Pages with no text layer can only take at= or region= marks. Prefer the student's page over drawing your own version of the same thing.
 - figure: the library below has ready interactive models. When one fits the concept, put it on the board with @figure and tell the student what to try in it. Never invent a name that is not in the list.
 - build_figure: if the student asks for an interactive model, or a concept is a real machine or process and no library figure fits, request one with @build_figure. It takes a long time to build (tens of minutes), so say that, keep teaching, and the model will appear on this board when it is ready. At most one per lesson.
 - Interleave @say lines between blocks so speech and writing happen together: a spoken line, then the block that holds what it said, then the next spoken line. Two to four @say lines per concept, each followed by its board content.
@@ -93,7 +98,7 @@ ${images}
 - Never repeat a block id unless you intend to replace that block.
 - If the student's message is a question, answer it on the board and in speech, then return to the rhythm.
 
-${figures}
+${figures}${sources}
 # Example turn
 @say Alright, let's get the big picture first.
 @section What reinforcement learning is

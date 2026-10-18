@@ -3,12 +3,26 @@ import { LessonEventSchema } from "./events";
 
 /** Messages between the browser and the tutor server over a websocket. */
 
+/** A file from the student's folder, prepared by the server: pages rendered, text extracted. */
+export const SourceSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  kind: z.enum(["pdf", "slides", "image", "text"]),
+  pages: z.number().int().nonnegative(),
+  /** Characters of text extracted. */
+  chars: z.number().int().nonnegative(),
+  note: z.string().optional(),
+});
+export type SourceSummary = z.infer<typeof SourceSummarySchema>;
+
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("start"),
     topic: z.string().default(""),
     /** Extracted text of any materials the student attached. */
     materials: z.array(z.object({ name: z.string(), text: z.string() })).default([]),
+    /** Ids of server-prepared sources (from POST /sources/scan) to teach from. */
+    sources: z.array(z.string()).default([]),
     model: z.string().optional(),
     /** Reopen a saved board (and continue its conversation) instead of starting fresh. */
     resume: z.string().optional(),

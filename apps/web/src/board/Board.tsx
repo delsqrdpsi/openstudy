@@ -7,6 +7,7 @@ import { HtmlBlock } from "./blocks/HtmlBlock";
 import { SvgBlock } from "./blocks/SvgBlock";
 import { ImageBlock } from "./blocks/ImageBlock";
 import { EmbedBlock } from "./blocks/EmbedBlock";
+import { PageBlock } from "./blocks/PageBlock";
 import { AnnotationLayer } from "./blocks/AnnotationLayer";
 import { finishStrokes, planStrokes, renderStrokes, type StrokePlan } from "./strokes";
 
@@ -210,6 +211,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ state, writ
                     targetEl={targets.get(block.id) ?? null}
                     scale={camera.scale}
                     version={versions.get(block.id) ?? 0}
+                    boxes={block.type === "page" ? block.boxes : undefined}
                   />
                 )}
               </div>
@@ -233,5 +235,7 @@ function BlockView({ block, writing }: { block: ContentBlock; writing: boolean }
       return <ImageBlock block={block} />;
     case "embed":
       return <EmbedBlock block={block} />;
+    case "page":
+      return <PageBlock block={block} />;
   }
 }
