@@ -6,6 +6,7 @@ import { BoardSummarySchema, type BoardSummary } from "@openstudy/shared";
 import { TUTOR_HTTP } from "@/board/useLiveSession";
 import { readMaterial, type Material } from "@/lib/materials";
 import { CanvasPanel } from "./CanvasPanel";
+import type { Course } from "@/lib/canvas";
 
 const MODELS = [
   { id: "sonnet", label: "Sonnet (fast)" },
@@ -21,6 +22,7 @@ export default function Home() {
   const [skipped, setSkipped] = useState<string[]>([]);
   const [boards, setBoards] = useState<BoardSummary[] | null>(null);
   const [showCanvas, setShowCanvas] = useState(false);
+  const [course, setCourse] = useState<Course | null>(null);
 
   const loadBoards = () =>
     fetch(`${TUTOR_HTTP}/boards`)
@@ -56,13 +58,18 @@ export default function Home() {
 
   const start = () => {
     const t = topic.trim();
-    if (!t && materials.length === 0) return;
+    if (!t && materials.length === 0 && !course) return;
     try {
       sessionStorage.setItem("openstudy.materials", JSON.stringify(materials));
     } catch {
       /* ignore */
     }
-    const q = new URLSearchParams({ topic: t || `Teach me what is in ${materials.map((m) => m.name).join(", ")}`, model });
+    const fallback = materials.length ? `Teach me what is in ${materials.map((m) => m.name).join(", ")}` : `Help me with ${course?.name}: start with what is coming up next`;
+    const q = new URLSearchParams({ topic: t || fallback, model });
+    if (course) {
+      q.set("course", String(course.id));
+      q.set("courseName", course.name);
+    }
     router.push(`/live?${q.toString()}`);
   };
 
@@ -79,7 +86,7 @@ export default function Home() {
         <div className="ui-card mt-6 p-3" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); addFiles(e.dataTransfer.files); }}>
           <textarea
             className="min-h-28 w-full resize-none bg-transparent p-2 text-[16px] outline-none placeholder:text-neutral-400"
-            placeholder="What do you want to learn? For example: how diffusion models generate images, for someone who knows basic probability."
+            placeholder={course ? `What do you want to work on in ${course.code || course.name}? A topic, a lecture, a homework problem, or "whatever is next".` : "What do you want to learn? For example: how diffusion models generate images, for someone who knows basic probability."}
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             onKeyDown={(e) => {
@@ -87,8 +94,16 @@ export default function Home() {
             }}
             aria-label="What do you want to learn"
           />
-          {materials.length > 0 && (
+          {(materials.length > 0 || course) && (
             <ul className="flex flex-wrap gap-2 px-2 pb-2">
+              {course && (
+                <li className="flex items-center gap-2 rounded-full bg-[rgba(15,157,138,0.12)] px-3 py-1 text-[13px] text-[var(--teal)]">
+                  Course: {course.code || course.name}
+                  <button className="text-[var(--teal)] opacity-60 hover:opacity-100" onClick={() => setCourse(null)} aria-label="Remove course">
+                    ✕
+                  </button>
+                </li>
+              )}
               {materials.map((m, i) => (
                 <li key={i} className="flex items-center gap-2 rounded-full bg-neutral-100 px-3 py-1 text-[13px]">
                   {m.name}
@@ -118,11 +133,19 @@ export default function Home() {
                 ))}
               </select>
             </div>
-            <button className="ui-btn primary px-4" onClick={start} disabled={reading > 0 || (!topic.trim() && materials.length === 0)}>
+            <button className="ui-btn primary px-4" onClick={start} disabled={reading > 0 || (!topic.trim() && materials.length === 0 && !course)}>
               Start lesson ↵
             </button>
           </div>
-          {showCanvas && <CanvasPanel onMaterial={(m) => setMaterials((list) => [...list, m])} onSkipped={(s) => setSkipped((list) => [...list, s])} onClose={() => setShowCanvas(false)} />}
+          {showCanvas && (
+            <CanvasPanel
+              course={course}
+              onCourse={setCourse}
+              onMaterial={(m) => setMaterials((list) => [...list, m])}
+              onSkipped={(s) => setSkipped((list) => [...list, s])}
+              onClose={() => setShowCanvas(false)}
+            />
+          )}
         </div>
 
         {boards && boards.length > 0 && (

@@ -10,6 +10,8 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     /** Extracted text of any materials the student attached. */
     materials: z.array(z.object({ name: z.string(), text: z.string() })).default([]),
     model: z.string().optional(),
+    /** A connected Canvas course the tutor may pull material from as it teaches. */
+    course: z.object({ id: z.number().int(), name: z.string() }).optional(),
     /** Reopen a saved board (and continue its conversation) instead of starting fresh. */
     resume: z.string().optional(),
   }),

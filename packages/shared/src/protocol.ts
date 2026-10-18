@@ -21,6 +21,7 @@ import { BlockSchema } from "./blocks";
  *   @end
  *   @figure id=<id> col=<n> name="<figure from the library>" caption="..."
  *   @build_figure name="<slug>" concept="what the model should show"
+ *   @pull query="<what to look for in the student's course>"   ends the turn; the material comes back as the next message
  *   @annotate id=<id> target=<id> kind=circle match="word or phrase"
  *   @focus id=<id>
  *   @remove id=<id>
@@ -39,7 +40,9 @@ export type ProtocolSignal =
   /** The tutor wants a library figure on the board; the server resolves name to src. */
   | { type: "figure"; id: string; column: number; name: string; caption?: string }
   /** The tutor asks for a new interactive model to be built in the background. */
-  | { type: "build_figure"; name: string; concept: string };
+  | { type: "build_figure"; name: string; concept: string }
+  /** The tutor wants to see what the connected course says about something; ends the turn. */
+  | { type: "pull"; query: string };
 
 export interface ProtocolSink {
   event(e: LessonEvent): void;
@@ -172,6 +175,17 @@ export class ProtocolParser {
           return;
         }
         this.sink.signal({ type: "build_figure", name: attrs.name, concept: attrs.concept });
+        return;
+      }
+      case "pull": {
+        this.closeOpen();
+        // Accept both @pull query="..." and a bare @pull what to look for
+        const query = (attrs.query ?? rest).trim();
+        if (!query) {
+          this.sink.signal({ type: "error", message: "pull needs a query", line });
+          return;
+        }
+        this.sink.signal({ type: "pull", query });
         return;
       }
       case "image": {

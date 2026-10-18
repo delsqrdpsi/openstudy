@@ -17,6 +17,8 @@ export interface BoardRow {
   model: string;
   brainSessionId: string | null;
   planJson: string | null;
+  /** Canvas course the lesson pulls from, if one was attached. */
+  courseId: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -52,6 +54,9 @@ export class Store {
         json text not null
       );
     `);
+    // Columns added since the first release; sqlite has no "add column if not exists".
+    const cols = (this.db.prepare("pragma table_info(boards)").all() as { name: string }[]).map((c) => c.name);
+    if (!cols.includes("course_id")) this.db.exec("alter table boards add column course_id integer");
   }
 
   /** Small named values that outlive a lesson, such as the Canvas connection. */
@@ -68,12 +73,12 @@ export class Store {
     this.db.prepare("delete from settings where key = ?").run(key);
   }
 
-  createBoard(b: Omit<BoardRow, "createdAt" | "updatedAt" | "brainSessionId" | "planJson">): BoardRow {
+  createBoard(b: Omit<BoardRow, "createdAt" | "updatedAt" | "brainSessionId" | "planJson" | "courseId"> & { courseId?: number | null }): BoardRow {
     const now = Date.now();
     this.db
-      .prepare("insert into boards (id, title, topic, brain, model, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?)")
-      .run(b.id, b.title, b.topic, b.brain, b.model, now, now);
-    return { ...b, brainSessionId: null, planJson: null, createdAt: now, updatedAt: now };
+      .prepare("insert into boards (id, title, topic, brain, model, course_id, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(b.id, b.title, b.topic, b.brain, b.model, b.courseId ?? null, now, now);
+    return { ...b, brainSessionId: null, planJson: null, courseId: b.courseId ?? null, createdAt: now, updatedAt: now };
   }
 
   getBoard(id: string): BoardRow | null {
@@ -150,6 +155,7 @@ function rowToBoard(r: Record<string, unknown>): BoardRow {
     model: String(r.model),
     brainSessionId: r.brain_session_id ? String(r.brain_session_id) : null,
     planJson: r.plan_json ? String(r.plan_json) : null,
+    courseId: r.course_id == null ? null : Number(r.course_id),
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
   };

@@ -8,6 +8,8 @@ export interface StartOptions {
   topic?: string;
   materials?: { name: string; text: string }[];
   model?: string;
+  /** A connected Canvas course the tutor may pull from as it teaches. */
+  course?: { id: number; name: string };
   /** Saved board id to reopen and continue. */
   resume?: string;
 }
@@ -105,7 +107,7 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
       setError(null);
       if (pending.current) {
         const o = pending.current;
-        sock.send(JSON.stringify({ type: "start", topic: o.topic ?? "", materials: o.materials ?? [], model: o.model, resume: o.resume }));
+        sock.send(JSON.stringify({ type: "start", topic: o.topic ?? "", materials: o.materials ?? [], model: o.model, course: o.course, resume: o.resume }));
         pending.current = null;
       }
     };
@@ -163,7 +165,7 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
       setState(emptyBoard(opts.topic ?? ""));
       setTranscript([]);
       setError(null);
-      const msg: ClientMessage = { type: "start", topic: opts.topic ?? "", materials: opts.materials ?? [], model: opts.model, resume: opts.resume };
+      const msg: ClientMessage = { type: "start", topic: opts.topic ?? "", materials: opts.materials ?? [], model: opts.model, course: opts.course, resume: opts.resume };
       if (ws.current?.readyState === WebSocket.OPEN) send(msg);
       else pending.current = opts;
     },

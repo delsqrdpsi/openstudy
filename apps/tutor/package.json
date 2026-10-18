@@ -17,6 +17,7 @@
   "dependencies": {
     "@openstudy/shared": "workspace:*",
     "nanoid": "^6.0.2",
+    "pdfjs-dist": "^6.4.299",
     "ws": "^8.22.0",
     "zod": "^4.3.3"
   },

@@ -88,6 +88,12 @@ describe("protocol", () => {
     ]);
   });
 
+  it("parses pull requests for course material", () => {
+    expect(parseProtocol('@say Let me see what your slides say.\n@pull query="projectile motion range equation"\n').signals).toEqual([{ type: "pull", query: "projectile motion range equation" }]);
+    expect(parseProtocol("@pull lecture 4 eigenvalues\n").signals).toEqual([{ type: "pull", query: "lecture 4 eigenvalues" }]);
+    expect(parseProtocol("@pull\n").signals).toEqual([{ type: "error", message: "pull needs a query", line: "@pull" }]);
+  });
+
   it("parses continue", () => {
     expect(parseProtocol("@say Next up, the rack.\n@continue\n").signals).toEqual([{ type: "continue" }]);
   });

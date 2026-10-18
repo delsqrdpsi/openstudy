@@ -1,14 +1,27 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { canvas, tokenSettingsUrl, type CanvasStatus, type Course, type CourseItem, type School } from "@/lib/canvas";
+import { canvas, tokenSettingsUrl, type CanvasStatus, type Course, type CourseItem, type IndexStatus, type School } from "@/lib/canvas";
 import type { Material } from "@/lib/materials";
 
 /**
  * Connect to Canvas, inline under the text box. Two steps the first time:
- * find the school, paste an access token. Once connected, it is a course
- * and item picker; picked items become lesson materials.
+ * find the school, paste an access token. Once connected, pick a course:
+ * the server reads it in the background and the tutor pulls from it on
+ * demand as it teaches. Individual items can still be attached by hand.
  */
-export function CanvasPanel({ onMaterial, onSkipped, onClose }: { onMaterial: (m: Material) => void; onSkipped: (name: string) => void; onClose: () => void }) {
+export function CanvasPanel({
+  course,
+  onCourse,
+  onMaterial,
+  onSkipped,
+  onClose,
+}: {
+  course: Course | null;
+  onCourse: (c: Course | null) => void;
+  onMaterial: (m: Material) => void;
+  onSkipped: (name: string) => void;
+  onClose: () => void;
+}) {
   const [status, setStatus] = useState<CanvasStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,6 +48,7 @@ export function CanvasPanel({ onMaterial, onSkipped, onClose }: { onMaterial: (m
             <button
               className="ui-btn text-[12px] text-neutral-500"
               onClick={() => {
+                onCourse(null);
                 canvas.disconnect().then(() => setStatus({ connected: false }));
               }}
             >
@@ -48,7 +62,7 @@ export function CanvasPanel({ onMaterial, onSkipped, onClose }: { onMaterial: (m
       </div>
       {error && <p className="mt-2 text-[13px] text-[var(--coral)]">{error}</p>}
       {status && !status.connected && <Connect onConnected={setStatus} />}
-      {status?.connected && <Picker onMaterial={onMaterial} onSkipped={onSkipped} />}
+      {status?.connected && (course ? <CourseView course={course} onChange={() => onCourse(null)} onMaterial={onMaterial} onSkipped={onSkipped} /> : <CourseList onPick={onCourse} />)}
     </div>
   );
 }
@@ -170,27 +184,105 @@ function Connect({ onConnected }: { onConnected: (s: CanvasStatus) => void }) {
   );
 }
 
-function Picker({ onMaterial, onSkipped }: { onMaterial: (m: Material) => void; onSkipped: (name: string) => void }) {
+function CourseList({ onPick }: { onPick: (c: Course) => void }) {
   const [courses, setCourses] = useState<Course[] | null>(null);
-  const [course, setCourse] = useState<Course | null>(null);
-  // Items are keyed by course so switching courses shows "loading" without a reset in an effect.
-  const [itemsFor, setItemsFor] = useState<{ courseId: number; items: CourseItem[] } | null>(null);
-  const items = itemsFor && course && itemsFor.courseId === course.id ? itemsFor.items : null;
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    canvas.courses().then(setCourses).catch((e: Error) => setError(e.message));
+  }, []);
+  if (error) return <p className="mt-2 text-[13px] text-[var(--coral)]">{error}</p>;
+  if (!courses) return <p className="mt-2 text-[13px] text-neutral-500">Loading your courses...</p>;
+  return (
+    <div className="mt-2">
+      <div className="text-[12px] font-semibold uppercase tracking-wide text-neutral-400">Which course is this for?</div>
+      {courses.length === 0 && <p className="mt-1 text-[13px] text-neutral-500">No active courses on this account.</p>}
+      <ul className="mt-2 max-h-56 divide-y divide-neutral-100 overflow-auto rounded-lg border border-neutral-200 bg-white">
+        {courses.map((c) => (
+          <li key={c.id}>
+            <button className="flex w-full items-baseline gap-2 px-3 py-2 text-left hover:bg-neutral-50" onClick={() => onPick(c)}>
+              <span className="truncate">{c.name}</span>
+              <span className="shrink-0 text-[12px] text-neutral-500">{c.code}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** The chosen course: start reading it on the server, show progress, and offer the item list for hand-picking. */
+function CourseView({ course, onChange, onMaterial, onSkipped }: { course: Course; onChange: () => void; onMaterial: (m: Material) => void; onSkipped: (name: string) => void }) {
+  const [index, setIndex] = useState<IndexStatus | null>(null);
+  const [browse, setBrowse] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let stop = false;
+    let timer: number | null = null;
+    const poll = () =>
+      canvas
+        .indexStatus(course.id)
+        .then((s) => {
+          if (stop) return;
+          setIndex(s);
+          if (s.state === "indexing") timer = window.setTimeout(poll, 1500);
+        })
+        .catch((e: Error) => {
+          if (!stop) setError(e.message);
+        });
+    canvas
+      .index(course)
+      .then((s) => {
+        if (stop) return;
+        setIndex(s);
+        if (s.state === "indexing") timer = window.setTimeout(poll, 1500);
+      })
+      .catch((e: Error) => {
+        if (!stop) setError(e.message);
+      });
+    return () => {
+      stop = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [course]);
+
+  const progress =
+    !index || index.state === "indexing"
+      ? `Reading the course${index ? ` · ${index.done} of ${index.items} items` : ""}...`
+      : index.state === "failed"
+        ? `Could not read the course: ${index.error}`
+        : `${index.items} items read · the tutor pulls slides, pages and assignments from them as it teaches`;
+
+  return (
+    <div className="mt-2">
+      <div className="flex items-center gap-2">
+        <span className="truncate font-medium">{course.name}</span>
+        <span className="shrink-0 text-[12px] text-neutral-500">{course.code}</span>
+        <button className="ui-btn ml-auto text-[12px]" onClick={onChange}>
+          Change course
+        </button>
+      </div>
+      <p className={`mt-1 text-[13px] ${index?.state === "failed" ? "text-[var(--coral)]" : "text-neutral-500"}`} aria-live="polite">
+        {progress}
+      </p>
+      {error && <p className="mt-1 text-[12px] text-[var(--coral)]">{error}</p>}
+      <button className="mt-1 text-[12px] text-neutral-500 underline decoration-neutral-300 hover:text-[var(--ink)]" onClick={() => setBrowse((v) => !v)}>
+        {browse ? "Hide the item list" : "Or attach specific items by hand"}
+      </button>
+      {browse && <ItemList course={course} onMaterial={onMaterial} onSkipped={onSkipped} />}
+    </div>
+  );
+}
+
+function ItemList({ course, onMaterial, onSkipped }: { course: Course; onMaterial: (m: Material) => void; onSkipped: (name: string) => void }) {
+  const [items, setItems] = useState<CourseItem[] | null>(null);
   const [filter, setFilter] = useState("");
   const [added, setAdded] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    canvas.courses().then(setCourses).catch((e: Error) => setError(e.message));
-  }, []);
-  useEffect(() => {
-    if (!course) return;
-    const id = course.id;
-    canvas
-      .items(id)
-      .then((items) => setItemsFor({ courseId: id, items }))
-      .catch((e: Error) => setError(e.message));
+    canvas.items(course.id).then(setItems).catch((e: Error) => setError(e.message));
   }, [course]);
 
   const groups = useMemo(() => {
@@ -206,7 +298,6 @@ function Picker({ onMaterial, onSkipped }: { onMaterial: (m: Material) => void; 
   }, [items, filter]);
 
   const add = async (it: CourseItem) => {
-    if (!course) return;
     const key = `${it.kind}:${it.id}`;
     setLoading((s) => new Set(s).add(key));
     try {
@@ -228,68 +319,37 @@ function Picker({ onMaterial, onSkipped }: { onMaterial: (m: Material) => void; 
   };
 
   if (error) return <p className="mt-2 text-[13px] text-[var(--coral)]">{error}</p>;
-  if (!courses) return <p className="mt-2 text-[13px] text-neutral-500">Loading your courses...</p>;
-  if (!course) {
-    return (
-      <div className="mt-2">
-        <div className="text-[12px] font-semibold uppercase tracking-wide text-neutral-400">Pick a course</div>
-        {courses.length === 0 && <p className="mt-1 text-[13px] text-neutral-500">No active courses on this account.</p>}
-        <ul className="mt-2 max-h-56 divide-y divide-neutral-100 overflow-auto rounded-lg border border-neutral-200 bg-white">
-          {courses.map((c) => (
-            <li key={c.id}>
-              <button className="flex w-full items-baseline gap-2 px-3 py-2 text-left hover:bg-neutral-50" onClick={() => setCourse(c)}>
-                <span className="truncate">{c.name}</span>
-                <span className="shrink-0 text-[12px] text-neutral-500">{c.code}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
-  }
+  if (items === null) return <p className="mt-2 text-[13px] text-neutral-500">Loading pages, assignments and files...</p>;
+  if (items.length === 0) return <p className="mt-2 text-[13px] text-neutral-500">Nothing readable in this course (the teacher may have hidden pages and files).</p>;
   return (
-    <div className="mt-2">
-      <div className="flex items-center gap-2">
-        <button className="ui-btn text-[12px]" onClick={() => setCourse(null)} aria-label="Back to courses">
-          ← Courses
-        </button>
-        <span className="truncate font-medium">{course.name}</span>
-      </div>
-      {items === null ? (
-        <p className="mt-2 text-[13px] text-neutral-500">Loading pages, assignments and files...</p>
-      ) : items.length === 0 ? (
-        <p className="mt-2 text-[13px] text-neutral-500">Nothing readable in this course (the teacher may have hidden pages and files).</p>
-      ) : (
-        <>
-          <input className="mt-2 w-full rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-[13px] outline-none focus:border-[var(--teal)]" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter course items" />
-          <div className="mt-2 max-h-72 overflow-auto rounded-lg border border-neutral-200 bg-white">
-            {groups.map(([group, list]) => (
-              <div key={group}>
-                <div className="sticky top-0 bg-neutral-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">{group}</div>
-                <ul className="divide-y divide-neutral-100">
-                  {list.map((it) => {
-                    const key = `${it.kind}:${it.id}`;
-                    const done = added.has(key);
-                    const busy = loading.has(key);
-                    return (
-                      <li key={key} className="flex items-center gap-2 px-3 py-1.5">
-                        <span className="w-5 shrink-0 text-center text-[12px] text-neutral-400" title={it.kind}>
-                          {it.kind === "file" ? "📄" : it.kind === "assignment" ? "✎" : "¶"}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate">{it.name}</span>
-                        {it.size != null && <span className="shrink-0 text-[11px] text-neutral-400">{Math.max(1, Math.round(it.size / 1024))} KB</span>}
-                        <button className={`ui-btn h-7 text-[12px]${done ? " is-on" : ""}`} onClick={() => add(it)} disabled={busy || done} aria-label={`Add ${it.name}`}>
-                          {done ? "Added" : busy ? "Reading..." : "+ Add"}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
+    <>
+      <input className="mt-2 w-full rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-[13px] outline-none focus:border-[var(--teal)]" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter course items" />
+      <div className="mt-2 max-h-72 overflow-auto rounded-lg border border-neutral-200 bg-white">
+        {groups.map(([group, list]) => (
+          <div key={group}>
+            <div className="sticky top-0 bg-neutral-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">{group}</div>
+            <ul className="divide-y divide-neutral-100">
+              {list.map((it) => {
+                const key = `${it.kind}:${it.id}`;
+                const done = added.has(key);
+                const busy = loading.has(key);
+                return (
+                  <li key={key} className="flex items-center gap-2 px-3 py-1.5">
+                    <span className="w-5 shrink-0 text-center text-[12px] text-neutral-400" title={it.kind}>
+                      {it.kind === "file" ? "📄" : it.kind === "assignment" ? "✎" : "¶"}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{it.name}</span>
+                    {it.size != null && <span className="shrink-0 text-[11px] text-neutral-400">{Math.max(1, Math.round(it.size / 1024))} KB</span>}
+                    <button className={`ui-btn h-7 text-[12px]${done ? " is-on" : ""}`} onClick={() => add(it)} disabled={busy || done} aria-label={`Add ${it.name}`}>
+                      {done ? "Added" : busy ? "Reading..." : "+ Add"}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
-        </>
-      )}
-    </div>
+        ))}
+      </div>
+    </>
   );
 }

@@ -13,7 +13,8 @@ import { createBrain, type Brain } from "./brain";
 import type { ImageBackend } from "./images";
 import type { Store } from "./store";
 import { LessonPlanSchema } from "@openstudy/shared";
-import { intakeMessage, tutorSystemPrompt } from "./prompts";
+import { intakeMessage, pullMessage, tutorSystemPrompt } from "./prompts";
+import { formatHits, type CourseIndex } from "./canvas/index";
 import { planLesson, planForTutor } from "./planner";
 import { figuresForPrompt, getFigure, listFigures } from "./figures";
 import { startBuild } from "./figures/builder";
@@ -54,6 +55,10 @@ export class Session {
   private autoRun = 0;
   private awaitingContinue = false;
   private pendingModel: string | null = null;
+  /** The student's course, when one is connected: the tutor pulls from it on demand. */
+  private course: CourseIndex | null = null;
+  /** @pull requests answered in a row without the student speaking; capped so the tutor cannot loop. */
+  private pulls = 0;
   private figureBase = process.env.TUTOR_PUBLIC_URL ?? `http://localhost:${process.env.TUTOR_PORT ?? 8787}`;
 
   constructor(
@@ -66,10 +71,19 @@ export class Session {
     if (id) this.id = id;
   }
 
-  async start(topic: string, materials: { name: string; text: string }[]) {
+  async start(topic: string, materials: { name: string; text: string }[], course: CourseIndex | null = null) {
     this.board = emptyBoard(topic);
-    this.store.createBoard({ id: this.id, title: titleFrom(topic), topic, brain: this.brain.name, model: this.brain.model });
+    this.course = course;
+    this.store.createBoard({ id: this.id, title: titleFrom(topic), topic, brain: this.brain.name, model: this.brain.model, courseId: course?.courseId ?? null });
     this.send({ type: "session", id: this.id, brain: this.brain.name, model: this.brain.model, title: titleFrom(topic) });
+    if (course) {
+      // Pull what the course says about the topic up front, so the intake and the plan start from the student's own material.
+      await course.settle(8000);
+      const hits = course.search(topic, 10);
+      log.info(`course pull for "${topic.slice(0, 60)}": ${hits.length} chunks (${course.status.state}, ${course.status.done}/${course.status.items} items)`);
+      if (hits.length) materials = [...materials, { name: `From the course ${course.name} (what matches the topic)`, text: formatHits(hits, 12000) }];
+      materials = [...materials, { name: `Outline of the course ${course.name}`, text: course.outlineText() }];
+    }
     // Plan while the intake conversation happens; usually ready before the student answers.
     this.plan = planLesson({ topic, materials, imagesEnabled: !!this.images, figures: figuresForPrompt(listFigures()) })
       .then((plan) => {
@@ -88,9 +102,10 @@ export class Session {
   }
 
   /** Reopen a saved lesson: replay its log to the client and continue the brain's session. */
-  async resume() {
+  async resume(course: CourseIndex | null = null) {
     const row = this.store.getBoard(this.id);
     if (!row) throw new Error("no such board");
+    this.course = course;
     const log = this.store.log(this.id);
     this.board = emptyBoard(row.topic);
     for (const e of log) if (e.kind === "event") this.board = applyEvent(this.board, e.event);
@@ -116,6 +131,7 @@ export class Session {
   async user(text: string) {
     this.awaitingContinue = false;
     this.autoRun = 0;
+    this.pulls = 0;
     this.store.append(this.id, { kind: "user", text });
     if (this.state === "thinking" || this.state === "speaking") {
       // Student spoke over the tutor: stop, remember what was heard, answer.
@@ -317,8 +333,9 @@ export class Session {
       this.boardNudge = null;
     }
     this.setState("thinking");
-    let ended: "ask" | "continue" | "done" | null = null;
+    let ended: "ask" | "continue" | "done" | "pull" | null = null;
     let options: string[] | undefined;
+    let pullQuery = "";
     const parser = new ProtocolParser({
       event: (e) => this.emit(e),
       signal: (s) => {
@@ -327,14 +344,21 @@ export class Session {
           options = s.options;
         } else if (s.type === "continue") ended = "continue";
         else if (s.type === "done") ended = "done";
-        else if (s.type === "figure") this.placeFigure(s);
+        else if (s.type === "pull") {
+          ended = "pull";
+          pullQuery = s.query;
+        } else if (s.type === "figure") this.placeFigure(s);
         else if (s.type === "build_figure") this.requestFigure(s.name, s.concept);
         else this.send({ type: "debug", text: `protocol: ${s.message} in "${s.line}"` });
       },
     });
 
     const result = await this.brain.turn({
-      system: tutorSystemPrompt({ imagesEnabled: !!this.images, figures: figuresForPrompt(listFigures()) }),
+      system: tutorSystemPrompt({
+        imagesEnabled: !!this.images,
+        figures: figuresForPrompt(listFigures()),
+        course: this.course ? { name: this.course.name, outline: this.course.outlineText() } : undefined,
+      }),
       userText,
       signal,
       onText: (t) => parser.feed(t),
@@ -382,6 +406,21 @@ export class Session {
     }
     if (this.pendingModel) this.applyModel(this.pendingModel);
     this.checkBoardCoverage();
+    if (ended === "pull") {
+      // The tutor asked to see the course. Look it up and hand it straight back; the student sees nothing but a pause.
+      this.pulls += 1;
+      const tooMany = this.pulls > 3;
+      let hits: ReturnType<CourseIndex["search"]> = [];
+      if (this.course && !tooMany) {
+        await this.course.settle(5000);
+        hits = this.course.search(pullQuery, 8);
+      }
+      log.info(`pull "${pullQuery.slice(0, 60)}": ${hits.length} chunks`);
+      this.send({ type: "debug", text: `pull "${pullQuery}": ${hits.length} chunks` });
+      await this.runTurn(pullMessage(pullQuery, this.course ? formatHits(hits) : null, tooMany));
+      return;
+    }
+    this.pulls = 0;
     if (ended === "continue") {
       this.awaitingContinue = true;
       this.setState("waiting", undefined, true);

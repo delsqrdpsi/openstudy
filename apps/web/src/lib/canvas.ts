@@ -20,6 +20,15 @@ export interface Course {
   name: string;
   code: string;
 }
+export interface IndexStatus {
+  courseId: number;
+  name: string;
+  state: "indexing" | "ready" | "failed";
+  items: number;
+  done: number;
+  chunks: number;
+  error?: string;
+}
 export interface CourseItem {
   kind: "page" | "assignment" | "file";
   id: string;
@@ -51,6 +60,10 @@ export const canvas = {
   disconnect: () => call<{ ok: true }>("/canvas", { method: "DELETE" }),
   courses: () => call<{ courses: Course[] }>("/canvas/courses").then((r) => r.courses),
   items: (courseId: number) => call<{ items: CourseItem[] }>(`/canvas/courses/${courseId}/items`).then((r) => r.items),
+  /** Have the server read the whole course (once; cached), so the tutor can pull from it on demand. */
+  index: (course: Course) =>
+    call<IndexStatus>(`/canvas/courses/${course.id}/index`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: course.name }) }),
+  indexStatus: (courseId: number) => call<IndexStatus>(`/canvas/courses/${courseId}/index`),
 
   /** One course item as lesson material; files go through the same reader as attached files. */
   async material(courseId: number, item: CourseItem): Promise<{ material?: Material; skipped?: string }> {

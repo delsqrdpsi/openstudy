@@ -8,7 +8,8 @@ import { Store } from "./store";
 import { listFigures, readFigureFile } from "./figures";
 import { listJobs } from "./figures/builder";
 import { bridgeTranscription, SAMPLE_RATE, speak, voiceConfig, VoiceError } from "./voice/deepgram";
-import { CanvasClient, CanvasError, normalizeDomain, searchSchools, type CanvasConnection } from "./canvas";
+import { CanvasClient, CanvasError, normalizeDomain, searchSchools, type CanvasConnection } from "./canvas/client";
+import { courseStatus, openCourse, type CourseIndex } from "./canvas/index";
 import { log } from "./log";
 
 const PORT = Number(process.env.TUTOR_PORT ?? 8787);
@@ -137,6 +138,8 @@ async function readJson(req: import("node:http").IncomingMessage): Promise<Recor
  *   POST   /canvas/connect {domain,token}  step two: check the token and save it
  *   DELETE /canvas                      forget the connection
  *   GET    /canvas/courses              the student's active courses
+ *   POST   /canvas/courses/:id/index {name}  read the whole course in the background (cached on disk); returns progress
+ *   GET    /canvas/courses/:id/index    indexing progress
  *   GET    /canvas/courses/:id/items    pages, assignments and files, by module
  *   GET    /canvas/courses/:id/text?kind=page|assignment&id=   one item as text
  *   GET    /canvas/files/:id            a file's bytes (read in the browser like a dropped file)
@@ -180,7 +183,24 @@ async function canvasRoute(url: URL, req: import("node:http").IncomingMessage, r
       return json(res, 200, { connected: true, domain, user: who.name });
     }
     if (path === "/canvas/courses" && req.method === "GET") return json(res, 200, { courses: await client().courses(signal) });
-    const course = /^\/canvas\/courses\/(\d+)\/(items|text)$/.exec(path);
+    const course = /^\/canvas\/courses\/(\d+)\/(items|text|index|search)$/.exec(path);
+    if (course && course[2] === "index") {
+      const id = Number(course[1]);
+      if (req.method === "POST") {
+        const body = await readJson(req);
+        const idx = openCourse(client(), conn!.domain, id, String(body.name ?? `course ${id}`));
+        return json(res, 200, idx.status);
+      }
+      const status = conn ? courseStatus(conn.domain, id) : null;
+      return status ? json(res, 200, status) : json(res, 404, { error: "not indexed" });
+    }
+    if (course && course[2] === "search" && req.method === "GET") {
+      // What a @pull would return, for checking an index by hand.
+      const idx = conn ? openCourse(client(), conn.domain, Number(course[1]), url.searchParams.get("name") ?? `course ${course[1]}`) : null;
+      if (!idx) throw new CanvasError("Canvas is not connected", 401);
+      await idx.settle(5000);
+      return json(res, 200, { status: idx.status, hits: idx.search(url.searchParams.get("q") ?? "", 8) });
+    }
     if (course && req.method === "GET") {
       const id = Number(course[1]);
       if (course[2] === "items") return json(res, 200, { items: await client().items(id, signal) });
@@ -208,6 +228,13 @@ async function canvasRoute(url: URL, req: import("node:http").IncomingMessage, r
     if (!res.headersSent) json(res, status, { error: err instanceof Error ? err.message : String(err) });
     else res.end();
   }
+}
+
+/** The index for a course, if Canvas is connected; a lesson without it just has no course to pull from. */
+function courseFor(courseId: number, name: string): CourseIndex | null {
+  const conn = store.getSetting<CanvasConnection>("canvas");
+  if (!conn) return null;
+  return openCourse(new CanvasClient(conn.domain, conn.token), conn.domain, courseId, name);
 }
 
 // Two websocket paths on one server: /ws for the lesson, /stt for the student's microphone.
@@ -246,13 +273,13 @@ wss.on("connection", (ws: WebSocket) => {
             if (!row) return send({ type: "error", message: "that board no longer exists" });
             session = new Session(createBrain({ model: row.model, session: row.brainSessionId }), images, store, send, row.id);
             log.info("resume", row.id, row.title);
-            await session.resume();
+            await session.resume(row.courseId != null ? courseFor(row.courseId, row.title) : null);
             break;
           }
           if (!msg.topic.trim()) return send({ type: "error", message: "tell me what you want to learn" });
           session = new Session(createBrain({ model: msg.model }), images, store, send);
-          log.info("session", session.id, "topic:", msg.topic.slice(0, 80));
-          await session.start(msg.topic, msg.materials);
+          log.info("session", session.id, "topic:", msg.topic.slice(0, 80), msg.course ? `course: ${msg.course.name}` : "");
+          await session.start(msg.topic, msg.materials, msg.course ? courseFor(msg.course.id, msg.course.name) : null);
           break;
         }
         case "user":

@@ -1,4 +1,4 @@
-import { htmlToText, nextLink, normalizeDomain } from "./canvas";
+import { htmlToText, nextLink, normalizeDomain } from "./client";
 
 describe("canvas", () => {
   it("takes a school address from whatever was typed", () => {

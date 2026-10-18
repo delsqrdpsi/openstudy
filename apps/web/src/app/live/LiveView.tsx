@@ -52,7 +52,9 @@ export function LiveView() {
     } catch {
       /* no materials */
     }
-    live.start({ topic: topic || "Help me learn something new", materials, model: params.get("model") ?? undefined });
+    const courseId = Number(params.get("course"));
+    const course = courseId ? { id: courseId, name: params.get("courseName") ?? `course ${courseId}` } : undefined;
+    live.start({ topic: topic || "Help me learn something new", materials, model: params.get("model") ?? undefined, course });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -64,6 +66,8 @@ export function LiveView() {
       const q = new URLSearchParams(window.location.search);
       q.delete("topic");
       q.delete("model");
+      q.delete("course");
+      q.delete("courseName");
       q.set("board", live.info.id);
       window.history.replaceState(null, "", `/live?${q.toString()}`);
     }
