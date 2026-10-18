@@ -47,7 +47,25 @@ export class Store {
         json text not null,
         primary key (board_id, seq)
       );
+      create table if not exists settings (
+        key text primary key,
+        json text not null
+      );
     `);
+  }
+
+  /** Small named values that outlive a lesson, such as the Canvas connection. */
+  getSetting<T>(key: string): T | null {
+    const r = this.db.prepare("select json from settings where key = ?").get(key) as { json: string } | undefined;
+    return r ? (JSON.parse(r.json) as T) : null;
+  }
+
+  setSetting(key: string, value: unknown) {
+    this.db.prepare("insert into settings (key, json) values (?, ?) on conflict(key) do update set json = excluded.json").run(key, JSON.stringify(value));
+  }
+
+  deleteSetting(key: string) {
+    this.db.prepare("delete from settings where key = ?").run(key);
   }
 
   createBoard(b: Omit<BoardRow, "createdAt" | "updatedAt" | "brainSessionId" | "planJson">): BoardRow {

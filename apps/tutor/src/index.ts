@@ -8,6 +8,7 @@ import { Store } from "./store";
 import { listFigures, readFigureFile } from "./figures";
 import { listJobs } from "./figures/builder";
 import { bridgeTranscription, SAMPLE_RATE, speak, voiceConfig, VoiceError } from "./voice/deepgram";
+import { CanvasClient, CanvasError, normalizeDomain, searchSchools, type CanvasConnection } from "./canvas";
 import { log } from "./log";
 
 const PORT = Number(process.env.TUTOR_PORT ?? 8787);
@@ -36,6 +37,10 @@ const http = createServer((req, res) => {
   if (url.pathname === "/voice" && req.method === "GET") return json(res, 200, voiceConfig());
   if (url.pathname === "/tts" && req.method === "POST") {
     void streamSpeech(req, res);
+    return;
+  }
+  if (url.pathname.startsWith("/canvas")) {
+    void canvasRoute(url, req, res);
     return;
   }
   if (url.pathname === "/boards" && req.method === "GET") return json(res, 200, store.listBoards());
@@ -89,7 +94,9 @@ async function streamSpeech(req: import("node:http").IncomingMessage, res: impor
     return json(res, 400, { error: "bad json" });
   }
   const abort = new AbortController();
-  req.on("close", () => abort.abort());
+  res.on("close", () => {
+    if (!res.writableFinished) abort.abort();
+  });
   try {
     const up = await speak(text, abort.signal);
     res.writeHead(200, { "content-type": "audio/l16", "x-sample-rate": String(SAMPLE_RATE), "cache-control": "no-store", ...CORS });
@@ -102,6 +109,102 @@ async function streamSpeech(req: import("node:http").IncomingMessage, res: impor
     if (abort.signal.aborted) return;
     const status = err instanceof VoiceError ? err.status : 502;
     log.warn("tts failed:", err instanceof Error ? err.message : err);
+    if (!res.headersSent) json(res, status, { error: err instanceof Error ? err.message : String(err) });
+    else res.end();
+  }
+}
+
+async function readJson(req: import("node:http").IncomingMessage): Promise<Record<string, unknown>> {
+  let body = "";
+  for await (const chunk of req) {
+    body += chunk;
+    if (body.length > 20000) throw new CanvasError("too long", 413);
+  }
+  try {
+    return body ? (JSON.parse(body) as Record<string, unknown>) : {};
+  } catch {
+    throw new CanvasError("bad json", 400);
+  }
+}
+
+/**
+ * Canvas LMS, in two steps: find the school (a directory search, no token),
+ * then paste an access token. The token is saved here and never sent back;
+ * the browser gets course and item names, and item contents on request.
+ *
+ *   GET    /canvas                      who is connected (domain, user) or {connected:false}
+ *   GET    /canvas/schools?q=           step one: schools matching a name
+ *   POST   /canvas/connect {domain,token}  step two: check the token and save it
+ *   DELETE /canvas                      forget the connection
+ *   GET    /canvas/courses              the student's active courses
+ *   GET    /canvas/courses/:id/items    pages, assignments and files, by module
+ *   GET    /canvas/courses/:id/text?kind=page|assignment&id=   one item as text
+ *   GET    /canvas/files/:id            a file's bytes (read in the browser like a dropped file)
+ */
+async function canvasRoute(url: URL, req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) {
+  const abort = new AbortController();
+  // The request emits close once its body is read; the response closes when the client is gone.
+  res.on("close", () => {
+    if (!res.writableFinished) abort.abort();
+  });
+  const signal = abort.signal;
+  const conn = store.getSetting<CanvasConnection>("canvas");
+  const client = () => {
+    if (!conn) throw new CanvasError("Canvas is not connected", 401);
+    return new CanvasClient(conn.domain, conn.token);
+  };
+  try {
+    const path = url.pathname;
+    if (path === "/canvas" && req.method === "GET") return json(res, 200, conn ? { connected: true, domain: conn.domain, user: conn.user } : { connected: false });
+    if (path === "/canvas" && req.method === "DELETE") {
+      store.deleteSetting("canvas");
+      return json(res, 200, { ok: true });
+    }
+    if (path === "/canvas/schools" && req.method === "GET") {
+      const q = url.searchParams.get("q") ?? "";
+      // Whatever they typed may itself be the address; offer it first so any school works, listed or not.
+      const typed = normalizeDomain(q);
+      const found = await searchSchools(q, signal);
+      const schools = typed && !found.some((s) => s.domain === typed) ? [{ name: typed, domain: typed }, ...found] : found;
+      return json(res, 200, { schools });
+    }
+    if (path === "/canvas/connect" && req.method === "POST") {
+      const body = await readJson(req);
+      const domain = normalizeDomain(String(body.domain ?? ""));
+      const token = String(body.token ?? "").trim();
+      if (!domain) throw new CanvasError("that does not look like a Canvas address", 400);
+      if (!token) throw new CanvasError("paste the access token", 400);
+      const who = await new CanvasClient(domain, token).self(signal);
+      store.setSetting("canvas", { domain, token, user: who.name } satisfies CanvasConnection);
+      log.info("canvas connected:", domain, "as", who.name);
+      return json(res, 200, { connected: true, domain, user: who.name });
+    }
+    if (path === "/canvas/courses" && req.method === "GET") return json(res, 200, { courses: await client().courses(signal) });
+    const course = /^\/canvas\/courses\/(\d+)\/(items|text)$/.exec(path);
+    if (course && req.method === "GET") {
+      const id = Number(course[1]);
+      if (course[2] === "items") return json(res, 200, { items: await client().items(id, signal) });
+      const kind = url.searchParams.get("kind");
+      const itemId = url.searchParams.get("id") ?? "";
+      if ((kind !== "page" && kind !== "assignment") || !itemId) throw new CanvasError("kind and id are required", 400);
+      return json(res, 200, await client().text(id, kind, itemId, signal));
+    }
+    const file = /^\/canvas\/files\/(\d+)$/.exec(path);
+    if (file && req.method === "GET") {
+      const f = await client().file(file[1], signal);
+      res.writeHead(200, { "content-type": f.type, "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(f.name)}`, "cache-control": "no-store", ...CORS, "access-control-expose-headers": "content-disposition" });
+      for await (const chunk of f.body.body as unknown as AsyncIterable<Uint8Array>) {
+        if (signal.aborted) break;
+        res.write(chunk);
+      }
+      res.end();
+      return;
+    }
+    json(res, 404, { error: "not found" });
+  } catch (err) {
+    if (signal.aborted) return;
+    const status = err instanceof CanvasError ? err.status : 502;
+    log.warn("canvas:", err instanceof Error ? err.message : err);
     if (!res.headersSent) json(res, status, { error: err instanceof Error ? err.message : String(err) });
     else res.end();
   }

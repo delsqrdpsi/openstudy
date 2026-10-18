@@ -312,6 +312,52 @@ Context folding: every N turns, summarise older transcript into a short
 "so far" note and drop the raw turns, the way the real product's
 `collapse-context` call does.
 
+### 6b. Canvas: teach from the course itself
+
+Step one is done: `Connect to Canvas` under the text box, find the school,
+paste an access token (the token stays in the tutor server's SQLite), then
+pick a course and pull pages, assignments and files in as materials. The
+rest, in order:
+
+1. **Attach the whole course, not items.** Instead of adding items one by
+   one, a course is attached as a *source*. The tutor server indexes it in
+   the background: every page, assignment description and file, split into
+   chunks tagged with (course, module, item, page number). Slide decks (PDF,
+   PPTX exported to PDF by Canvas) are split per slide, each slide kept as
+   both text and a rendered PNG at modest resolution. Stored next to images
+   in `data/`. Indexing is text first (fast), pictures after.
+2. **"Teach me X from my course."** The intake prompt gets the course outline
+   (module and item names, a line each) rather than the material, so the
+   planner can see what the course covers without reading all of it. The
+   planner picks the items that match the topic and reads only those; the
+   plan carries `sources: [{item, slides: [3, 4, 7]}]` per section.
+3. **A `@slide` block.** New block type: `{ type: "slide", source, item,
+   page, crop? }`. The server serves the rendered slide; the board shows it
+   as a picture the tutor can draw over. The existing annotation layer
+   already paints highlights, circles and underlines on picture regions, so
+   "draw over it and explain" is `@slide` followed by `@annotate` and
+   `@say`. `crop` is an optional region (fractions of width and height) so
+   a snippet of a slide can be shown instead of the whole thing.
+4. **Only when needed.** The prompt rule: explain in your own words on the
+   board by default; bring a slide up only when the student asks about it,
+   when a figure or notation in the slides is what they will be tested on,
+   or when a slide says it better than you can. Prefer a snippet to a whole
+   slide. One slide at a time, then back to the board.
+5. **"I do not get this part of the slides."** A `find_slides(query)` tool
+   on the tutor server runs lexical search over the course index (and
+   embedding search if a local model is available) and returns the few
+   slides that match with their text, so the tutor can decide which to show
+   and explain. The student can also drop a slide number or paste text from
+   the deck; both resolve to the same thing.
+6. **Keep the token local.** Canvas is read-only here. Nothing is ever
+   written back to Canvas. The browser never sees the token.
+
+Open questions: Canvas hides Files and Pages tabs on many courses, so
+Modules is the reliable listing; PPTX that is not exported to PDF needs a
+converter (LibreOffice headless) or is read as text only; slide rendering
+is pdf.js in Node (`pdfjs-dist` with the canvas package) or in the browser
+on first open, cached after.
+
 ### 7. Persistence
 
 SQLite with three tables: boards, blocks, turns. Images saved to

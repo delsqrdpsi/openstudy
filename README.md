@@ -28,6 +28,8 @@ The plan and the reasoning behind it are in [PLAN.md](PLAN.md).
       shown on the board in sandboxed frames; animated `@motion` diagrams for
       live motion; "build me a model" jobs that run Anatomy in the background
 - [x] Hosted voice: Deepgram Aura-2 and Nova behind the tutor server, barge-in kept
+- [x] Canvas (part): connect to your school's Canvas with an access token,
+      pull pages, assignments and files from a course into a lesson
 - [ ] Next: image and scanned-PDF reading, source pages on the board
 
 ## Run it
@@ -47,6 +49,12 @@ two, plans, and starts. Answer in the box at the bottom or turn the mic on
 drag on empty paper to pan, hold space to drag anywhere.
 
 The scripted demo lesson on the home page runs with no model at all.
+
+`Connect to Canvas` under the text box pulls course material in: find your
+school, then paste an access token from Canvas (Account → Settings →
+Approved Integrations → New Access Token). The token is kept in the tutor
+server's database on your machine and never sent to the browser. Pages,
+assignments and files you pick become lesson materials, like dropped files.
 
 ## How it is put together
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { BoardSummarySchema, type BoardSummary } from "@openstudy/shared";
 import { TUTOR_HTTP } from "@/board/useLiveSession";
 import { readMaterial, type Material } from "@/lib/materials";
+import { CanvasPanel } from "./CanvasPanel";
 
 const MODELS = [
   { id: "sonnet", label: "Sonnet (fast)" },
@@ -19,6 +20,7 @@ export default function Home() {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [skipped, setSkipped] = useState<string[]>([]);
   const [boards, setBoards] = useState<BoardSummary[] | null>(null);
+  const [showCanvas, setShowCanvas] = useState(false);
 
   const loadBoards = () =>
     fetch(`${TUTOR_HTTP}/boards`)
@@ -105,6 +107,9 @@ export default function Home() {
                 + Add files
                 <input type="file" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} accept=".pdf,.txt,.md,.markdown,.csv,.json,.py,.js,.ts,.html,application/pdf,text/*" />
               </label>
+              <button className={`ui-btn${showCanvas ? " is-on" : ""}`} onClick={() => setShowCanvas((v) => !v)} title="Pull pages, assignments and files from your Canvas courses">
+                Connect to Canvas
+              </button>
               <select className="ui-btn bg-transparent" value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model">
                 {MODELS.map((m) => (
                   <option key={m.id} value={m.id}>
@@ -117,6 +122,7 @@ export default function Home() {
               Start lesson ↵
             </button>
           </div>
+          {showCanvas && <CanvasPanel onMaterial={(m) => setMaterials((list) => [...list, m])} onSkipped={(s) => setSkipped((list) => [...list, s])} onClose={() => setShowCanvas(false)} />}
         </div>
 
         {boards && boards.length > 0 && (
