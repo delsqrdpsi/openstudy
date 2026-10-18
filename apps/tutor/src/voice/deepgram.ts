@@ -1,5 +1,6 @@
 import { WebSocket } from "ws";
 import { log } from "../log";
+import { activeMeter } from "../usage";
 
 /**
  * Hosted voice through Deepgram, kept behind the tutor server so the key
@@ -98,7 +99,15 @@ export function bridgeTranscription(client: WebSocket, params: URLSearchParams) 
   });
   up.on("message", (data, isBinary) => {
     if (isBinary || client.readyState !== WebSocket.OPEN) return;
-    client.send(data.toString());
+    const text = data.toString();
+    // Deepgram bills audio duration; final results carry how much audio they cover.
+    try {
+      const m = JSON.parse(text) as { type?: string; is_final?: boolean; duration?: number };
+      if (m.type === "Results" && m.is_final && typeof m.duration === "number") activeMeter()?.stt(m.duration);
+    } catch {
+      /* not json */
+    }
+    client.send(text);
   });
   up.on("close", (code, reason) => {
     stop();

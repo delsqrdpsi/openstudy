@@ -48,6 +48,18 @@ export class Store {
         primary key (board_id, seq)
       );
     `);
+    // Added later: running usage totals per board.
+    const cols = (this.db.prepare("pragma table_info(boards)").all() as { name: string }[]).map((c) => c.name);
+    if (!cols.includes("usage_json")) this.db.exec("alter table boards add column usage_json text");
+  }
+
+  setUsage(id: string, usageJson: string) {
+    this.db.prepare("update boards set usage_json = ? where id = ?").run(usageJson, id);
+  }
+
+  getUsage(id: string): string | null {
+    const r = this.db.prepare("select usage_json from boards where id = ?").get(id) as { usage_json?: string | null } | undefined;
+    return r?.usage_json ?? null;
   }
 
   createBoard(b: Omit<BoardRow, "createdAt" | "updatedAt" | "brainSessionId" | "planJson">): BoardRow {

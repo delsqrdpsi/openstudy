@@ -11,5 +11,7 @@ export interface ImageResult {
 
 export interface ImageBackend {
   readonly name: string;
+  /** Key into the price table, e.g. "openai:gpt-image-1:low". */
+  readonly priceKey: string;
   generate(req: ImageRequest): Promise<ImageResult>;
 }

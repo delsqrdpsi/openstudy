@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { useLiveSession, type Speaker } from "@/board/useLiveSession";
 import { useVoice } from "@/board/useVoice";
 import { LessonShell } from "@/board/LessonShell";
+import { UsageBadge } from "@/board/UsageBadge";
 
 /** A live lesson. The intake (topic and materials) arrives from the home page. */
 export function LiveView() {
@@ -115,7 +116,8 @@ export function LiveView() {
             )}
           </div>
           {live.info && (
-            <span className="ui-card flex items-center gap-1 py-1 pl-3 pr-1 text-[12px] text-neutral-500">
+            <span className="ui-card flex items-center gap-1 py-1 pl-1 pr-1 text-[12px] text-neutral-500">
+              <UsageBadge usage={live.usage} contextWindow={live.info.model === "sonnet" ? 1_000_000 : 200_000} />
               {live.info.brain} ·
               <select
                 className="ui-btn h-7 bg-transparent px-1 text-[12px]"

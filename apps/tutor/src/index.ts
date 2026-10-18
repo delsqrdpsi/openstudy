@@ -9,6 +9,7 @@ import { listFigures, readFigureFile } from "./figures";
 import { listJobs } from "./figures/builder";
 import { bridgeTranscription, SAMPLE_RATE, speak, voiceConfig, VoiceError } from "./voice/deepgram";
 import { log } from "./log";
+import { activeMeter } from "./usage";
 
 const PORT = Number(process.env.TUTOR_PORT ?? 8787);
 
@@ -92,6 +93,7 @@ async function streamSpeech(req: import("node:http").IncomingMessage, res: impor
   req.on("close", () => abort.abort());
   try {
     const up = await speak(text, abort.signal);
+    activeMeter()?.tts(text.length);
     res.writeHead(200, { "content-type": "audio/l16", "x-sample-rate": String(SAMPLE_RATE), "cache-control": "no-store", ...CORS });
     for await (const chunk of up.body as unknown as AsyncIterable<Uint8Array>) {
       if (abort.signal.aborted) break;

@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ServerMessageSchema, applyEvent, emptyBoard, type BoardState, type ClientMessage, type TurnState } from "@openstudy/shared";
+import { ServerMessageSchema, applyEvent, emptyBoard, type BoardState, type ClientMessage, type TurnState, type Usage } from "@openstudy/shared";
 import { entryFromEvent, pushEntry, type TranscriptEntry } from "@/lib/transcript";
 import { Pacer, estimateSpeechMs, type PacedItem } from "./pacer";
 
@@ -39,6 +39,7 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<{ brain: string; model: string; id: string; title: string } | null>(null);
   const [writingId, setWritingId] = useState<string | null>(null);
+  const [usage, setUsage] = useState<Usage | null>(null);
   const ws = useRef<WebSocket | null>(null);
   const writeTimer = useRef<number | null>(null);
   const pending = useRef<StartOptions | null>(null);
@@ -116,6 +117,9 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
       if (!parsed.success) return;
       const m = parsed.data;
       switch (m.type) {
+        case "usage":
+          setUsage(m.usage);
+          break;
         case "session":
           setInfo({ brain: m.brain, model: m.model, id: m.id, title: m.title });
           setState((s) => ({ ...s, title: m.title }));
@@ -199,5 +203,5 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
     send({ type: "interrupt", heard: heard.current });
   }, [send]);
 
-  return { state, turn, options, transcript, connected, error, info, writingId, start, say, interrupt, setModel };
+  return { state, turn, options, transcript, connected, error, info, writingId, usage, start, say, interrupt, setModel };
 }

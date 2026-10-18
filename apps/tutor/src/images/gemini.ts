@@ -9,6 +9,9 @@ import { stylePrompt } from "./style";
  */
 export class GeminiImages implements ImageBackend {
   readonly name = "gemini";
+  get priceKey(): string {
+    return `gemini:${this.model}`;
+  }
   private readonly model = process.env.GEMINI_IMAGE_MODEL ?? "gemini-2.5-flash-image";
   constructor(private readonly store: ImageStore, private readonly apiKey = process.env.GEMINI_API_KEY ?? "") {
     if (!this.apiKey) throw new Error("GEMINI_API_KEY is not set");

@@ -18,6 +18,8 @@ import { planLesson, planForTutor } from "./planner";
 import { figuresForPrompt, getFigure, listFigures } from "./figures";
 import { startBuild } from "./figures/builder";
 import { log } from "./log";
+import { UsageMeter, setActiveMeter } from "./usage";
+import { UsageSchema } from "@openstudy/shared";
 
 /** How long the first teaching turn waits for the planner before going without it. */
 const PLAN_WAIT_MS = Number(process.env.PLAN_WAIT_MS ?? 4000);
@@ -54,6 +56,7 @@ export class Session {
   private autoRun = 0;
   private awaitingContinue = false;
   private pendingModel: string | null = null;
+  readonly meter = new UsageMeter();
   private figureBase = process.env.TUTOR_PUBLIC_URL ?? `http://localhost:${process.env.TUTOR_PORT ?? 8787}`;
 
   constructor(
@@ -69,10 +72,12 @@ export class Session {
   async start(topic: string, materials: { name: string; text: string }[]) {
     this.board = emptyBoard(topic);
     this.store.createBoard({ id: this.id, title: titleFrom(topic), topic, brain: this.brain.name, model: this.brain.model });
+    this.attachMeter();
     this.send({ type: "session", id: this.id, brain: this.brain.name, model: this.brain.model, title: titleFrom(topic) });
     // Plan while the intake conversation happens; usually ready before the student answers.
     this.plan = planLesson({ topic, materials, imagesEnabled: !!this.images, figures: figuresForPrompt(listFigures()) })
-      .then((plan) => {
+      .then(({ plan, costUsd }) => {
+        this.meter.plan(costUsd);
         this.pregenerate(plan);
         this.store.setPlan(this.id, JSON.stringify(plan));
         this.store.setTitle(this.id, plan.title);
@@ -94,8 +99,15 @@ export class Session {
     const log = this.store.log(this.id);
     this.board = emptyBoard(row.topic);
     for (const e of log) if (e.kind === "event") this.board = applyEvent(this.board, e.event);
+    const savedUsage = this.store.getUsage(this.id);
+    if (savedUsage) {
+      const parsed = UsageSchema.safeParse(JSON.parse(savedUsage));
+      if (parsed.success) this.meter.usage = parsed.data;
+    }
+    this.attachMeter();
     this.send({ type: "session", id: this.id, brain: this.brain.name, model: this.brain.model, title: row.title });
     this.send({ type: "history", log });
+    this.send({ type: "usage", usage: this.meter.usage });
     this.resumeTranscript = transcriptOf(log);
     this.planDelivered = true;
     if (row.planJson) {
@@ -159,6 +171,15 @@ export class Session {
   close() {
     this.abort?.abort();
     this.brain.close();
+    setActiveMeter(null);
+  }
+
+  private attachMeter() {
+    setActiveMeter(this.meter);
+    this.meter.onChange((u) => {
+      this.store.setUsage(this.id, JSON.stringify(u));
+      this.send({ type: "usage", usage: u });
+    });
   }
 
   private pregenerate(plan: LessonPlan) {
@@ -231,7 +252,12 @@ export class Session {
     const t0 = Date.now();
     try {
       const ready = this.readyImages.get(id);
-      const url = ready ? await ready : (await this.images!.generate({ id, prompt })).url;
+      let url: string;
+      if (ready) url = await ready;
+      else {
+        url = (await this.images!.generate({ id, prompt })).url;
+        this.meter.image(this.images!.priceKey, this.images!.name);
+      }
       log.info(`image ${id} ready in ${((Date.now() - t0) / 1000).toFixed(1)}s${ready ? " (pregenerated)" : ""}`);
       this.update({ type: "image.update", id, status: "ready", url });
     } catch (err) {
@@ -342,6 +368,7 @@ export class Session {
     parser.end();
     if (this.brain.session) this.store.setBrainSession(this.id, this.brain.session);
 
+    if (result.status !== "aborted" || this.spoken.length) this.meter.turn(result.meta as { cost_usd?: number; usage?: Record<string, number> } | undefined);
     if (result.meta) this.send({ type: "debug", text: `turn ${this.turns}: ${JSON.stringify(result.meta)}` });
 
     if (result.status === "aborted") {

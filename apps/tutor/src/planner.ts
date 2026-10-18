@@ -18,7 +18,7 @@ export async function planLesson(input: {
   figures?: string;
   model?: string;
   signal?: AbortSignal;
-}): Promise<LessonPlan> {
+}): Promise<{ plan: LessonPlan; costUsd: number }> {
   const model = input.model ?? process.env.PLANNER_MODEL ?? "fable";
   const system = `You are a master teacher planning a one-on-one whiteboard lesson. You will not teach it; a live tutor will, following your plan section by section. Be concrete and specific to this student. Prefer fewer, deeper sections (3 to 6). Each section: one clear goal, two to five key points in the order to teach them, one vivid example or analogy, one real check question that tests understanding (with 2 to 4 short options when it works as multiple choice), and the misconceptions to watch for.${
     input.imagesEnabled
@@ -67,7 +67,7 @@ export async function planLesson(input: {
   const raw = result.structured_output ?? tryJson(result.result ?? "");
   const plan = LessonPlanSchema.parse(raw);
   log.info(`plan ready in ${((Date.now() - t0) / 1000).toFixed(1)}s on ${model}: ${plan.sections.length} sections, cost ${result.total_cost_usd}`);
-  return plan;
+  return { plan, costUsd: result.total_cost_usd ?? 0 };
 }
 
 function tryJson(s: string): unknown {

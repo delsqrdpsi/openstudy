@@ -8,6 +8,9 @@ import { stylePrompt } from "./style";
  */
 export class FalImages implements ImageBackend {
   readonly name = "fal";
+  get priceKey(): string {
+    return `fal:${this.model}`;
+  }
   private readonly model = process.env.FAL_MODEL ?? "fal-ai/flux/schnell";
   constructor(private readonly store: ImageStore, private readonly apiKey = process.env.FAL_KEY ?? "") {
     if (!this.apiKey) throw new Error("FAL_KEY is not set");

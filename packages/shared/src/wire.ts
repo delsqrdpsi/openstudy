@@ -44,7 +44,29 @@ export const BoardSummarySchema = z.object({
 });
 export type BoardSummary = z.infer<typeof BoardSummarySchema>;
 
+/** Running totals for one lesson. Costs are list-price estimates in USD. */
+export const UsageSchema = z.object({
+  tutor: z.object({
+    turns: z.number(),
+    inputTokens: z.number(),
+    outputTokens: z.number(),
+    cacheReadTokens: z.number(),
+    cacheWriteTokens: z.number(),
+    /** Tokens the model read on the latest turn: how full the context is. */
+    contextTokens: z.number(),
+    costUsd: z.number(),
+  }),
+  planner: z.object({ calls: z.number(), costUsd: z.number() }),
+  images: z.object({ count: z.number(), costUsd: z.number(), backend: z.string().optional() }),
+  voice: z.object({ sttSeconds: z.number(), ttsChars: z.number(), costUsd: z.number(), provider: z.string().optional() }),
+  totalUsd: z.number(),
+  /** True when the brain runs on a subscription: the LLM cost is an estimate, not a charge. */
+  subscription: z.boolean(),
+});
+export type Usage = z.infer<typeof UsageSchema>;
+
 export const ServerMessageSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("usage"), usage: UsageSchema }),
   z.object({ type: z.literal("session"), id: z.string(), brain: z.string(), model: z.string(), title: z.string() }),
   /** Sent on resume, before anything else: the saved lesson so far. */
   z.object({ type: z.literal("history"), log: z.array(LogEntrySchema) }),

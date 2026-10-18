@@ -12,6 +12,9 @@ import { stylePrompt } from "./style";
  */
 export class OpenAIImages implements ImageBackend {
   readonly name = "openai";
+  get priceKey(): string {
+    return `openai:${this.model}:${this.quality}`;
+  }
   private readonly model = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1";
   private readonly quality = process.env.OPENAI_IMAGE_QUALITY ?? "low";
   private readonly size = process.env.OPENAI_IMAGE_SIZE ?? "1536x1024";
