@@ -5,7 +5,8 @@ handwriting, draws sketched diagrams, shows pictures, asks you questions, and
 adapts to your answers. Single user, local first, your own subscriptions and
 keys.
 
-The plan and the reasoning behind it are in [PLAN.md](PLAN.md).
+The plan and the reasoning behind it are in [PLAN.md](PLAN.md). The launch
+plan (video, social content, tooling) is in [docs/launch.md](docs/launch.md).
 
 ## Status
 
