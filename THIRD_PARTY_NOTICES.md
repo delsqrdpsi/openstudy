@@ -8,9 +8,9 @@ their own terms, reproduced here.
 
 https://github.com/wheresryan22/anatomy
 
-- `figures/desk-computer/` and `figures/dial-indicator/` are Anatomy examples.
-- Figures built with the Anatomy skill (for example `figures/lever-balance/`)
-  contain Anatomy's rendering code.
+Interactive models built with the Anatomy skill contain its rendering code.
+They are made on your machine under `figures/` and are not part of this
+repository; if you share one, include this notice with it.
 
 ```
 MIT License
@@ -35,5 +35,15 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## pdf.js (Apache License 2.0)
+
+https://github.com/mozilla/pdf.js
+
+- `apps/web/public/vendor/pdf.worker.min.mjs` is the pdf.js worker from the
+  `pdfjs-dist` package, copied so the browser can load it. Copyright Mozilla
+  Foundation and contributors, licensed under the Apache License, Version 2.0
+  (https://www.apache.org/licenses/LICENSE-2.0). It must match the
+  `pdfjs-dist` version pinned in `apps/web/package.json`.
 
 Third-party npm packages used by OpenStudy are under their own licenses, listed in each package under `node_modules`.

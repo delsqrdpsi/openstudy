@@ -11,6 +11,9 @@ export interface Camera {
 export const MIN_SCALE = 0.15;
 export const MAX_SCALE = 3;
 
+/** Elements that act on Space themselves; holding Space to pan must not take it from them. */
+const INTERACTIVE = 'input, textarea, select, button, a[href], summary, [contenteditable]:not([contenteditable="false"]), [role="button"], [role="checkbox"], [role="switch"], [role="menuitem"], [role="option"], [role="slider"], [role="tab"]';
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 /**
@@ -120,10 +123,16 @@ export function useViewport(viewportRef: React.RefObject<HTMLDivElement | null>)
     };
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.code === "Space" && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
-        spaceHeld.current = e.type === "keydown";
-        if (e.type === "keydown") e.preventDefault();
+      if (e.code !== "Space") return;
+      if (e.type === "keyup") {
+        spaceHeld.current = false;
+        return;
       }
+      // Space belongs to whatever has focus when it uses it: typing, pressing a button, opening a select.
+      const t = e.target instanceof Element ? e.target : null;
+      if (t?.closest(INTERACTIVE)) return;
+      spaceHeld.current = true;
+      e.preventDefault();
     };
 
     const onPointerDown = (e: PointerEvent) => {

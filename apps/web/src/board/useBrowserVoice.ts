@@ -42,6 +42,8 @@ export function useBrowserVoice(opts: VoiceOptions): VoiceApi {
   const [rate, setRate] = useState(1.05);
   const [heard, setHeard] = useState("");
   const [paused, setPaused] = useState(false);
+  const pausedRef = useRef(false);
+  const [micError, setMicError] = useState<string | null>(null);
 
   const queue = useRef<{ text: string; onEnd?: () => void }[]>([]);
   const current = useRef<SpeechSynthesisUtterance | null>(null);
@@ -58,8 +60,8 @@ export function useBrowserVoice(opts: VoiceOptions): VoiceApi {
     const id = window.setTimeout(() => setSupported({ tts: "speechSynthesis" in window, stt: !!getRecognitionCtor() }), 0);
     return () => window.clearTimeout(id);
   }, []);
-  /** Stop the tutor's voice now and drop anything queued. */
-  const stop = useCallback(() => {
+  /** Cut the tutor's voice now and drop anything queued. Leaves a pause as it is. */
+  const halt = useCallback(() => {
     const dropped = queue.current;
     queue.current = [];
     const end = currentEnd.current;
@@ -73,16 +75,27 @@ export function useBrowserVoice(opts: VoiceOptions): VoiceApi {
     for (const d of dropped) d.onEnd?.();
   }, []);
 
+  /** Stop the tutor's voice and end a pause, so the next line is heard. */
+  const stop = useCallback(() => {
+    halt();
+    if (pausedRef.current) {
+      pausedRef.current = false;
+      setPaused(false);
+      // Chrome stays paused across cancel(); without this the next line would be silent.
+      window.speechSynthesis?.resume();
+    }
+  }, [halt]);
+
   const setMutedOn = useCallback(
     (on: boolean) => {
       mutedRef.current = on;
       setMuted(on);
       if (on) {
-        stop();
+        halt();
         setCaption(null);
       }
     },
-    [stop],
+    [halt],
   );
   useEffect(() => {
     rateRef.current = rate;
@@ -192,15 +205,17 @@ export function useBrowserVoice(opts: VoiceOptions): VoiceApi {
       // Barge-in: a few real words while the tutor talks. Short fragments are
       // ignored so the speaker echo does not trip it.
       if (!bargedIn && speakingRef.current && interim.trim().split(/\s+/).length >= 3) {
+        // The lesson drops its queue first, so stopping the voice cannot start the next line.
         bargedIn = true;
-        stop();
         optsRef.current.onBargeIn();
+        stop();
       }
     };
     r.onerror = (e) => {
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
         wantListening.current = false;
         setListening(false);
+        setMicError("The microphone is blocked. Allow it for this site to talk to the tutor.");
       }
     };
     r.onend = () => {
@@ -224,7 +239,10 @@ export function useBrowserVoice(opts: VoiceOptions): VoiceApi {
     (on: boolean) => {
       wantListening.current = on;
       setListening(on);
-      if (on) startRec();
+      if (on) {
+        setMicError(null);
+        startRec();
+      }
       else {
         rec.current?.abort();
         rec.current = null;
@@ -243,13 +261,31 @@ export function useBrowserVoice(opts: VoiceOptions): VoiceApi {
   );
 
   const pause = useCallback(() => {
+    pausedRef.current = true;
     setPaused(true);
     window.speechSynthesis?.pause();
   }, []);
   const resume = useCallback(() => {
+    pausedRef.current = false;
     setPaused(false);
     window.speechSynthesis?.resume();
   }, []);
 
-  return { provider: "browser", supported, muted, setMuted: setMutedOn, listening, setListening: setListeningOn, speaking, caption, rate, setRate, speak, estimate, stop, level: 0, heard, paused, pause, resume };
+  /**
+   * Called from a click: some browsers only let speech start inside a
+   * gesture, so say nothing once to open the way for the lesson's lines.
+   */
+  const unlock = useCallback(() => {
+    const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
+    if (!synth || synth.speaking || synth.pending) return;
+    try {
+      const u = new SpeechSynthesisUtterance(" ");
+      u.volume = 0;
+      synth.speak(u);
+    } catch {
+      /* no synthesiser */
+    }
+  }, []);
+
+  return { provider: "browser", supported, muted, setMuted: setMutedOn, listening, setListening: setListeningOn, speaking, caption, rate, setRate, speak, estimate, stop, level: 0, heard, paused, pause, resume, unlock, micError };
 }

@@ -1,7 +1,8 @@
 import { createRequire } from "node:module";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import type { TextBox } from "@openstudy/shared";
 import { log } from "../log";
+import { dataDir } from "../paths";
 
 /**
  * Word boxes for a page that has no text layer (a screenshot, a photo, a
@@ -26,10 +27,14 @@ async function getWorker(): Promise<Worker> {
     worker = (async () => {
       const { createWorker } = (await import("tesseract.js")) as unknown as { createWorker: (lang: string, oem?: number, opts?: Record<string, unknown>) => Promise<Worker> };
       const data = require("@tesseract.js-data/eng") as { langPath: string; gzip: boolean };
-      const cachePath = join(process.env.DATA_DIR ?? resolve(process.cwd(), "../../data"), "ocr-cache");
+      const cachePath = join(dataDir(), "ocr-cache");
       const w = await createWorker("eng", 1, { langPath: data.langPath, gzip: data.gzip, cachePath, logger: () => {} });
       return w;
     })();
+    // A worker that failed to start is not kept: the next page tries again.
+    worker.catch(() => {
+      worker = null;
+    });
   }
   return worker;
 }
@@ -58,6 +63,7 @@ export async function ocrPage(file: string, width: number, height: number): Prom
 }
 
 export async function stopOcr() {
-  if (worker) await (await worker).terminate();
+  const w = worker;
   worker = null;
+  if (w) await (await w).terminate().catch(() => {});
 }

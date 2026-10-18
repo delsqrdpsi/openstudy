@@ -11,7 +11,11 @@
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
+    "setup:anatomy": "npx -y skills add wheresryan22/anatomy -g -a claude-code",
     "figures:seed": "pnpm --filter @openstudy/tutor figures:seed",
     "figures:import": "pnpm --filter @openstudy/tutor figures:import"
+  },
+  "engines": {
+    "node": ">=22.13"
   }
 }

@@ -50,6 +50,8 @@ export function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array<ArrayBuffe
 /** The recorder format Deepgram can read from this browser, if any. */
 export function pickRecorderMime(): string | null {
   if (typeof MediaRecorder === "undefined") return null;
-  for (const m of ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"]) if (MediaRecorder.isTypeSupported(m)) return m;
+  // Safari records only MP4 (AAC). Deepgram detects containers itself (the server sets no encoding),
+  // and lists MP4/AAC among them; it comes last so browsers with WebM keep using it.
+  for (const m of ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"]) if (MediaRecorder.isTypeSupported(m)) return m;
   return null;
 }

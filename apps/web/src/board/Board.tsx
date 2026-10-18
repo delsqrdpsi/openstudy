@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, forwardRef } from "react";
+import { memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, forwardRef } from "react";
 import type { AnnotationBlock, BoardState, ContentBlock } from "@openstudy/shared";
 import { DEFAULT_LAYOUT, focusArea, isContentBlock, layoutColumns } from "@openstudy/shared";
 import { useViewport } from "./useViewport";
@@ -10,6 +10,7 @@ import { EmbedBlock } from "./blocks/EmbedBlock";
 import { PageBlock } from "./blocks/PageBlock";
 import { AnnotationLayer } from "./blocks/AnnotationLayer";
 import { finishStrokes, planStrokes, renderStrokes, type StrokePlan } from "./strokes";
+import { sameList } from "./annotations";
 
 export interface BoardHandle {
   zoomTo: (scale: number) => void;
@@ -51,6 +52,15 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ state, writ
   const [versions, setVersions] = useState<Map<string, number>>(new Map());
   const [targets, setTargets] = useState<Map<string, HTMLElement>>(new Map());
   const observer = useRef<ResizeObserver | null>(null);
+  // Web fonts finishing can move words without resizing a block: marks re-measure then too.
+  const [fontsVersion, setFontsVersion] = useState(0);
+  useEffect(() => {
+    const fonts = typeof document !== "undefined" ? document.fonts : undefined;
+    if (!fonts) return;
+    const bump = () => setFontsVersion((v) => v + 1);
+    fonts.addEventListener("loadingdone", bump);
+    return () => fonts.removeEventListener("loadingdone", bump);
+  }, []);
 
   useEffect(() => {
     observer.current = new ResizeObserver((entries) => {
@@ -231,28 +241,19 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ state, writ
         {content.map((block) => {
           const p = layout.placements.get(block.id);
           if (!p) return null;
-          const annos = annotationsByTarget.get(block.id);
           return (
-            <div
+            <BoardItem
               key={block.id}
-              ref={attach}
-              data-item-id={block.id}
-              className="wb-item wb-item-enter"
-              style={{ transform: `translate(${p.x}px, ${p.y}px)`, width: block.type === "html" ? p.width : undefined }}
-            >
-              <div style={{ position: "relative" }}>
-                <BlockView block={block} writing={writingId === block.id} />
-                {annos && (
-                  <AnnotationLayer
-                    annotations={annos}
-                    targetEl={targets.get(block.id) ?? null}
-                    scale={camera.scale}
-                    version={versions.get(block.id) ?? 0}
-                    boxes={block.type === "page" ? block.boxes : undefined}
-                  />
-                )}
-              </div>
-            </div>
+              block={block}
+              x={p.x}
+              y={p.y}
+              width={block.type === "html" ? p.width : undefined}
+              writing={writingId === block.id}
+              annotations={annotationsByTarget.get(block.id)}
+              targetEl={targets.get(block.id) ?? null}
+              version={(versions.get(block.id) ?? 0) + fontsVersion}
+              attach={attach}
+            />
           );
         })}
       </div>
@@ -260,9 +261,47 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ state, writ
   );
 });
 
-/** The last non-empty text node under `root`, where the writing currently ends. */
+interface ItemProps {
+  block: ContentBlock;
+  x: number;
+  y: number;
+  width: number | undefined;
+  writing: boolean;
+  annotations: AnnotationBlock[] | undefined;
+  targetEl: HTMLElement | null;
+  version: number;
+  attach: (el: HTMLDivElement | null) => (() => void) | undefined;
+}
 
-function BlockView({ block, writing }: { block: ContentBlock; writing: boolean }) {
+/**
+ * One block on the board. Memoised: a streamed token or a camera frame
+ * re-renders the board, but only the block that changed re-renders. The
+ * annotation list is rebuilt on every board change, so it compares by content.
+ */
+const BoardItem = memo(
+  function BoardItem({ block, x, y, width, writing, annotations, targetEl, version, attach }: ItemProps) {
+    return (
+      <div ref={attach} data-item-id={block.id} className="wb-item wb-item-enter" style={{ transform: `translate(${x}px, ${y}px)`, width }}>
+        <div style={{ position: "relative" }}>
+          <BlockView block={block} writing={writing} />
+          {annotations && <AnnotationLayer annotations={annotations} targetEl={targetEl} version={version} boxes={block.type === "page" ? block.boxes : undefined} />}
+        </div>
+      </div>
+    );
+  },
+  (a, b) =>
+    a.block === b.block &&
+    a.x === b.x &&
+    a.y === b.y &&
+    a.width === b.width &&
+    a.writing === b.writing &&
+    a.targetEl === b.targetEl &&
+    a.version === b.version &&
+    a.attach === b.attach &&
+    sameList(a.annotations, b.annotations),
+);
+
+const BlockView = memo(function BlockView({ block, writing }: { block: ContentBlock; writing: boolean }) {
   switch (block.type) {
     case "html":
       return <HtmlBlock block={block} writing={writing} />;
@@ -275,4 +314,4 @@ function BlockView({ block, writing }: { block: ContentBlock; writing: boolean }
     case "page":
       return <PageBlock block={block} />;
   }
-}
+});

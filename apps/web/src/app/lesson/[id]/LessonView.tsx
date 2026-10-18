@@ -16,16 +16,18 @@ export function LessonView({ fixture }: { fixture: LessonFixture }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Transcript derived from the events played so far.
+  // Transcript derived from the events played so far. Keyed on how many have
+  // played, not the clock: the position moves every frame, the count only when
+  // something lands, so the chat is not rebuilt (and re-scrolled) 60 times a second.
+  const played = playedCount(fixture.events, player.position);
   const transcript = useMemo(() => {
-    const played = fixture.events.filter((e) => e.at <= player.position).map((e) => e.event);
     let list: TranscriptEntry[] = [];
-    for (const ev of played) {
-      const entry = entryFromEvent(ev);
+    for (let i = 0; i < played; i++) {
+      const entry = entryFromEvent(fixture.events[i].event);
       if (entry) list = pushEntry(list, entry);
     }
     return list;
-  }, [fixture.events, player.position]);
+  }, [fixture.events, played]);
 
   const turn = player.playing ? "speaking" : player.position >= player.total ? "done" : "idle";
 
@@ -55,4 +57,16 @@ export function LessonView({ fixture }: { fixture: LessonFixture }) {
       }
     />
   );
+}
+
+/** Events at or before `position` (events are in time order): a binary search, run every frame. */
+function playedCount(events: { at: number }[], position: number): number {
+  let lo = 0;
+  let hi = events.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (events[mid].at <= position) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }

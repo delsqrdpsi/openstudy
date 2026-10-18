@@ -15,25 +15,45 @@ export const SourceSummarySchema = z.object({
 });
 export type SourceSummary = z.infer<typeof SourceSummarySchema>;
 
+/** Board ids: what nanoid produces, or what a client may choose for a new board. */
+export const BOARD_ID = /^[A-Za-z0-9_-]{6,40}$/;
+/** Longest message a student can send in one go. */
+export const MAX_USER_TEXT = 8000;
+
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("start"),
-    topic: z.string().default(""),
+    topic: z.string().max(2000).default(""),
     /** Extracted text of any materials the student attached. */
-    materials: z.array(z.object({ name: z.string(), text: z.string() })).default([]),
+    materials: z.array(z.object({ name: z.string().max(300), text: z.string().max(400_000) })).max(50).default([]),
     /** Ids of server-prepared sources (from POST /sources/scan) to teach from. */
-    sources: z.array(z.string()).default([]),
+    sources: z.array(z.string().max(64)).max(50).default([]),
     model: z.string().optional(),
     /** Reopen a saved board (and continue its conversation) instead of starting fresh. */
-    resume: z.string().optional(),
+    resume: z.string().regex(BOARD_ID).optional(),
+    /**
+     * Board id chosen by the client for a new lesson, so a refresh before the
+     * server answers reopens the same board instead of starting a second one.
+     * If a board with this id exists, the start is treated as a resume.
+     */
+    id: z.string().regex(BOARD_ID).optional(),
+    /** Resume without the welcome-back turn: the client is reconnecting after a dropped connection. */
+    quiet: z.boolean().optional(),
   }),
-  z.object({ type: z.literal("user"), text: z.string().min(1) }),
+  z.object({ type: z.literal("user"), text: z.string().min(1).max(MAX_USER_TEXT) }),
   /** The narration of a @continue turn has finished playing; go on. */
   z.object({ type: z.literal("continue") }),
   /** Switch the tutor's model; takes effect from the next turn, same conversation. */
   z.object({ type: z.literal("model"), model: z.string().min(1).max(64) }),
-  /** heard: how many @say lines of the current turn the student actually heard. */
+  /**
+   * heard: how many @say lines of the current turn the student actually heard.
+   * The server always answers an interrupt with block.remove events for what
+   * was not heard, then exactly one `turn` message, whether or not the model
+   * was still writing.
+   */
   z.object({ type: z.literal("interrupt"), heard: z.number().int().nonnegative().optional() }),
+  /** The student's answer to an `offer` (for now: building an interactive model). */
+  z.object({ type: z.literal("offer.answer"), id: z.string().max(64), accept: z.boolean() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 
@@ -71,6 +91,8 @@ export const UsageSchema = z.object({
     /** The model's context window, when the brain reports it. */
     contextWindow: z.number().optional(),
     costUsd: z.number(),
+    /** The CLI reports a running cost per session; the last total seen for each, so only increases are added. */
+    sessionCosts: z.record(z.string(), z.number()).optional(),
   }),
   planner: z.object({ calls: z.number(), costUsd: z.number() }),
   images: z.object({ count: z.number(), costUsd: z.number(), backend: z.string().optional() }),
@@ -89,7 +111,17 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("event"), event: LessonEventSchema }),
   /** auto: the tutor ended the turn with @continue; the client sends `continue` once the narration has played. */
   z.object({ type: z.literal("turn"), state: TurnStateSchema, options: z.array(z.string()).optional(), auto: z.boolean().optional() }),
-  z.object({ type: z.literal("error"), message: z.string() }),
+  /**
+   * code "superseded": this board was opened in another tab or window, which
+   * now owns the lesson. The client must not reconnect on its own.
+   */
+  z.object({ type: z.literal("error"), message: z.string(), code: z.enum(["superseded"]).optional() }),
   z.object({ type: z.literal("debug"), text: z.string() }),
+  /**
+   * The tutor wants to do something that costs real time and money and runs
+   * tools on this machine (building an interactive model takes up to an hour
+   * and a few dollars of plan usage). Nothing happens until the student accepts.
+   */
+  z.object({ type: z.literal("offer"), id: z.string(), kind: z.literal("build_figure"), concept: z.string(), detail: z.string() }),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessageSchema>;

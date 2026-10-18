@@ -1,8 +1,0 @@
-{
-  "name": "desk-computer",
-  "title": "Desk computer",
-  "description": "A desktop computer with the side panel off: motherboard, CPU and cooler, RAM, GPU, power supply, drives and fans. Shows what the parts of a PC are and how they sit together.",
-  "tags": ["computers", "hardware", "systems"],
-  "source": "Anatomy example by wheresryan22, MIT",
-  "height": 440
-}

@@ -1,4 +1,4 @@
-import { ProtocolParser, parseAttrs, parseProtocol } from "./protocol";
+import { ProtocolParser, parseAttrs, parseProtocol, type ProtocolSignal } from "./protocol";
 import { applyEvents, emptyBoard } from "./board";
 import type { LessonEvent } from "./events";
 
@@ -104,5 +104,55 @@ describe("protocol", () => {
 
   it("parses quoted attributes with escapes", () => {
     expect(parseAttrs('id=a col=1 match="say \\"hi\\"" caption=\'it\\\'s\'')).toEqual({ id: "a", col: "1", match: 'say "hi"', caption: "it's" });
+  });
+});
+
+describe("parser edge cases from review", () => {
+  const run = (chunks: string[], opts?: ConstructorParameters<typeof ProtocolParser>[1]) => {
+    const events: LessonEvent[] = [];
+    const signals: ProtocolSignal[] = [];
+    const p = new ProtocolParser({ event: (e) => events.push(e), signal: (s) => signals.push(s) }, opts);
+    for (const c of chunks) p.feed(c);
+    p.end();
+    return { events, signals };
+  };
+  const htmlOf = (events: LessonEvent[], id: string) =>
+    events.reduce((h, e) => (e.type === "block.append" && e.id === id ? h + e.html : h), "");
+
+  it("keeps the rest of a streamed line as content even when it starts with @", () => {
+    const { events, signals } = run(["@html id=contact\nmail me", "@x.com today\n@end\n"]);
+    expect(htmlOf(events, "contact")).toContain("mail me@x.com today");
+    expect(signals.filter((s) => s.type === "error")).toHaveLength(0);
+  });
+
+  it("keeps CSS at-rules inside a motion block", () => {
+    const { events } = run(["@motion id=spin\n<svg><style>\n@keyframes r { to { transform: rotate(1turn) } }\n</style></svg>\n@end\n"]);
+    const add = events.find((e) => e.type === "block.add");
+    expect(add && add.type === "block.add" && add.block.type === "svg" ? add.block.svg : "").toContain("@keyframes");
+  });
+
+  it("closes a block on an indented @end", () => {
+    const { events } = run(["@html id=a\nhello\n  @end\n@say next\n"]);
+    expect(htmlOf(events, "a")).not.toContain("@end");
+    expect(events.some((e) => e.type === "say" && e.text === "next")).toBe(true);
+  });
+
+  it("slugs focus, remove and annotation targets like block ids", () => {
+    const { events } = run(["@focus id=Step-1\n@remove id=Old Block\n@annotate target=Step-1 kind=circle match=x\n"]);
+    expect(events).toContainEqual({ type: "focus", id: "step_1" });
+    expect(events).toContainEqual({ type: "block.remove", id: "old" });
+    const ann = events.find((e) => e.type === "block.add");
+    expect(ann && ann.type === "block.add" && ann.block.type === "annotation" ? ann.block.target : "").toBe("step_1");
+  });
+
+  it("does not let generated ids replace blocks from earlier turns, but keeps explicit re-sends", () => {
+    const { events } = run(["@html\nno id\n@end\n@annotate target=plan match=x\n@html id=plan\nupdated\n@end\n"], { existingIds: ["block", "ann", "plan"] });
+    const ids = events.filter((e) => e.type === "block.add").map((e) => (e.type === "block.add" ? e.block.id : ""));
+    expect(ids).toEqual(["block_2", "ann_2", "plan"]);
+  });
+
+  it("handles CRLF split across chunks", () => {
+    const { events } = run(["@say one\r", "\n@say two\r\n"]);
+    expect(events.filter((e) => e.type === "say").map((e) => (e.type === "say" ? e.text : ""))).toEqual(["one", "two"]);
   });
 });

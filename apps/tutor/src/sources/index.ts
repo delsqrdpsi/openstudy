@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, mkdtempSync, copyFileSync } from "node:fs";
-import { basename, extname, join, resolve } from "node:path";
-import { tmpdir } from "node:os";
-import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync, mkdtempSync, copyFileSync } from "node:fs";
+import { basename, extname, join, relative, resolve, isAbsolute } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { spawn, spawnSync } from "node:child_process";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import JSZip from "jszip";
 import type { SourceSummary, TextBox } from "@openstudy/shared";
 import { log } from "../log";
 import { ocrPage } from "./ocr";
+import { dataDir } from "../paths";
 
 /**
  * The student's own material: a folder of slides, PDFs, photos and notes.
@@ -28,7 +29,7 @@ export interface SourceMeta extends SourceSummary {
   text: string;
 }
 
-const ROOT = join(process.env.DATA_DIR ?? resolve(process.cwd(), "../../data"), "sources");
+const ROOT = join(dataDir(), "sources");
 const MAX_PAGES = Number(process.env.SOURCE_MAX_PAGES ?? 80);
 const RENDER_WIDTH = 1400;
 const EXTS: Record<string, SourceSummary["kind"]> = {
@@ -46,22 +47,72 @@ const EXTS: Record<string, SourceSummary["kind"]> = {
   ".markdown": "text",
 };
 
+/**
+ * Folders the tutor may read course material from: your home directory by
+ * default, or the comma-separated list in SOURCES_ROOT (for example an
+ * external drive). Anything else is refused, so a bad request cannot point the
+ * scanner at system files.
+ */
+export function sourceRoots(): string[] {
+  const roots = (process.env.SOURCES_ROOT ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  return (roots.length ? roots : [homedir()]).map((r) => {
+    try {
+      return realpathSync(resolve(r));
+    } catch {
+      return resolve(r);
+    }
+  });
+}
+
+export function insideRoots(path: string, roots = sourceRoots()): boolean {
+  return roots.some((root) => {
+    const rel = relative(root, path);
+    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+  });
+}
+
 export function scanFolder(dir: string): { path: string; name: string; kind: SourceSummary["kind"]; size: number }[] {
   const out: { path: string; name: string; kind: SourceSummary["kind"]; size: number }[] = [];
+  let start: string;
+  try {
+    start = realpathSync(resolve(dir.replace(/^~(?=$|\/)/, homedir())));
+  } catch {
+    throw new Error(`no such folder: ${dir}`);
+  }
+  if (!insideRoots(start)) throw new Error(`that folder is outside the folders OpenStudy may read (set SOURCES_ROOT to allow it)`);
   const walk = (d: string, depth: number) => {
     if (depth > 2) return;
-    for (const f of readdirSync(d)) {
+    let entries: string[];
+    try {
+      entries = readdirSync(d);
+    } catch {
+      return; // unreadable folder: skip it, keep the rest
+    }
+    for (const f of entries) {
       if (f.startsWith(".")) continue;
       const p = join(d, f);
-      const st = statSync(p);
+      let st;
+      try {
+        st = statSync(p);
+      } catch {
+        continue; // broken link or no permission
+      }
       if (st.isDirectory()) walk(p, depth + 1);
-      else {
+      else if (st.isFile()) {
         const kind = EXTS[extname(f).toLowerCase()];
-        if (kind) out.push({ path: p, name: f, kind, size: st.size });
+        if (!kind) continue;
+        // A link may point outside the allowed folders; follow it only if its target is inside.
+        let real: string;
+        try {
+          real = realpathSync(p);
+        } catch {
+          continue;
+        }
+        if (insideRoots(real)) out.push({ path: p, name: f, kind, size: st.size });
       }
     }
   };
-  walk(resolve(dir), 0);
+  walk(start, 0);
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -87,10 +138,13 @@ export function getSource(id: string): SourceMeta | null {
 }
 
 export function readSourceFile(id: string, file: string): { bytes: Buffer; type: string } | null {
-  if (!/^[a-f0-9]{12}$/.test(id) || !/^[\w.-]+$/.test(file)) return null;
+  // Only rendered pages are served; the extracted text and the original path stay on the server.
+  const m = /^page-\d{1,4}\.(png|jpg|jpeg|webp)$/.exec(file);
+  if (!/^[a-f0-9]{12}$/.test(id) || !m) return null;
   const p = join(ROOT, id, file);
   if (!existsSync(p)) return null;
-  return { bytes: readFileSync(p), type: file.endsWith(".png") ? "image/png" : file.endsWith(".jpg") || file.endsWith(".jpeg") ? "image/jpeg" : "application/octet-stream" };
+  const type = m[1] === "png" ? "image/png" : m[1] === "webp" ? "image/webp" : "image/jpeg";
+  return { bytes: readFileSync(p), type };
 }
 
 const summary = (m: SourceMeta): SourceSummary => ({ id: m.id, name: m.name, kind: m.kind, pages: m.pages, chars: m.chars, note: m.note });
@@ -99,7 +153,8 @@ const summary = (m: SourceMeta): SourceSummary => ({ id: m.id, name: m.name, kin
 export async function prepareSource(path: string): Promise<SourceSummary> {
   const id = idFor(path);
   const existing = getSource(id);
-  if (existing) return summary(existing);
+  // Reuse a prepared file, unless it came out empty (say, a .key deck before LibreOffice was installed): try again.
+  if (existing && (existing.pages > 0 || existing.kind === "text")) return summary(existing);
   const dir = join(ROOT, id);
   mkdirSync(dir, { recursive: true });
   const kind = EXTS[extname(path).toLowerCase()];
@@ -120,7 +175,25 @@ export async function prepareSource(path: string): Promise<SourceSummary> {
 
 async function preparePdf(id: string, name: string, path: string, dir: string, kind: SourceSummary["kind"], note?: string): Promise<SourceMeta> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(readFileSync(path)), useSystemFonts: true }).promise;
+  const task = pdfjs.getDocument({ data: new Uint8Array(readFileSync(path)), useSystemFonts: true });
+  try {
+    return await renderPdf(pdfjs, await task.promise, id, name, path, dir, kind, note);
+  } finally {
+    // Frees the document's memory; a long course folder would otherwise pile it up.
+    await task.destroy();
+  }
+}
+
+async function renderPdf(
+  pdfjs: typeof import("pdfjs-dist/legacy/build/pdf.mjs"),
+  doc: Awaited<ReturnType<typeof import("pdfjs-dist/legacy/build/pdf.mjs").getDocument>["promise"]>,
+  id: string,
+  name: string,
+  path: string,
+  dir: string,
+  kind: SourceSummary["kind"],
+  note?: string,
+): Promise<SourceMeta> {
   const pages: SourcePage[] = [];
   let ocrPages = 0;
   const total = Math.min(doc.numPages, MAX_PAGES);
@@ -173,17 +246,22 @@ async function preparePdf(id: string, name: string, path: string, dir: string, k
 
 async function prepareSlides(id: string, name: string, path: string, dir: string): Promise<SourceMeta> {
   // Best path: LibreOffice turns the deck into a PDF with real slide images and a text layer.
-  const soffice = ["soffice", "libreoffice"].find((b) => spawnSync("which", [b]).status === 0);
+  const soffice = findSoffice();
   if (soffice) {
     const tmp = mkdtempSync(join(tmpdir(), "openstudy-slides-"));
-    const r = spawnSync(soffice, ["--headless", "--convert-to", "pdf", "--outdir", tmp, path], { timeout: 180_000 });
-    const pdf = join(tmp, basename(path).replace(/\.[^.]+$/, ".pdf"));
-    if (r.status === 0 && existsSync(pdf)) {
-      const meta = await preparePdf(id, name, pdf, dir, "slides");
-      meta.path = path;
-      return meta;
+    try {
+      // Asynchronous: a big deck takes LibreOffice a while, and every live lesson must keep talking meanwhile.
+      const r = await run(soffice, ["--headless", "--convert-to", "pdf", "--outdir", tmp, path], 180_000);
+      const pdf = join(tmp, basename(path).replace(/\.[^.]+$/, ".pdf"));
+      if (r.status === 0 && existsSync(pdf)) {
+        const meta = await preparePdf(id, name, pdf, dir, "slides");
+        meta.path = path;
+        return meta;
+      }
+      log.warn("slide conversion failed, falling back to text:", r.stderr.slice(0, 200));
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
     }
-    log.warn("slide conversion failed, falling back to text:", r.stderr?.toString().slice(0, 200));
   }
   // Fallback: text per slide from the pptx xml, drawn onto plain slides.
   const zip = await JSZip.loadAsync(readFileSync(path));
@@ -220,7 +298,8 @@ async function prepareSlides(id: string, name: string, path: string, dir: string
 
 async function prepareImage(id: string, name: string, path: string, dir: string): Promise<SourceMeta> {
   const img = await loadImage(path);
-  const ext = extname(path).toLowerCase() === ".png" ? "png" : "jpg";
+  const e = extname(path).toLowerCase();
+  const ext = e === ".png" ? "png" : e === ".webp" ? "webp" : "jpg";
   const file = `page-1.${ext}`;
   copyFileSync(path, join(dir, file));
   let boxes: TextBox[] = [];
@@ -235,6 +314,31 @@ async function prepareImage(id: string, name: string, path: string, dir: string)
     note = "OCR failed: the tutor can only mark regions of this picture";
   }
   return { id, name, kind: "image", pages: 1, chars: text.length, note, path, pages_: [{ n: 1, file, aspect: img.width / img.height, boxes, text }], text };
+}
+
+let sofficePath: string | null | undefined;
+function findSoffice(): string | null {
+  if (sofficePath !== undefined) return sofficePath;
+  const mac = "/Applications/LibreOffice.app/Contents/MacOS/soffice";
+  sofficePath = ["soffice", "libreoffice"].find((b) => spawnSync("which", [b]).status === 0) ?? (existsSync(mac) ? mac : null);
+  return sofficePath;
+}
+
+function run(cmd: string, args: string[], timeoutMs: number): Promise<{ status: number | null; stderr: string }> {
+  return new Promise((resolve) => {
+    let stderr = "";
+    const child = spawn(cmd, args, { stdio: ["ignore", "ignore", "pipe"] });
+    const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+    child.stderr.on("data", (d) => (stderr += d));
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ status: null, stderr: e.message });
+    });
+    child.on("close", (status) => {
+      clearTimeout(timer);
+      resolve({ status, stderr });
+    });
+  });
 }
 
 /** Material text for the planner. */

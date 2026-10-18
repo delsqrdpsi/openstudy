@@ -24,9 +24,9 @@ The plan and the reasoning behind it are in [PLAN.md](PLAN.md).
       from the home page and keep talking to the same tutor session
 - [x] Phase 6 (part): PDFs and text files you attach are read in the browser;
       any board can be printed or saved as PDF
-- [x] Interactive models: a figure library built with the Anatomy skill,
-      shown on the board in sandboxed frames; animated `@motion` diagrams for
-      live motion; "build me a model" jobs that run Anatomy in the background
+- [x] Interactive models: ask for the anatomy of a device and the tutor builds
+      that real object with the Anatomy skill in the background, shown on the
+      board in a sandboxed frame; animated `@motion` diagrams for live motion
 - [x] Hosted voice: Deepgram Aura-2 and Nova behind the tutor server, barge-in kept
 - [x] Teach from a folder: point it at your course slides, PDFs and
       screenshots; pages come onto the board as pictures and the tutor marks
@@ -34,7 +34,7 @@ The plan and the reasoning behind it are in [PLAN.md](PLAN.md).
 
 ## Run it
 
-You need Node 22, pnpm, and the `claude` CLI logged in to your Claude plan
+You need Node 22.13 or newer, pnpm, and the `claude` CLI logged in to your Claude plan
 (`claude` once in a terminal, then sign in). That is the only hard
 requirement: the tutor and the planner bill to that plan, not to an API key.
 To run on a ChatGPT plan instead, install the Codex CLI
@@ -43,8 +43,14 @@ To run on a ChatGPT plan instead, install the Codex CLI
 ```bash
 pnpm install
 cp .env.example .env     # add keys here, see the next section
+pnpm setup:anatomy       # optional: lets the tutor build interactive models
 pnpm dev                 # web on http://localhost:3000, tutor server on :8787
 ```
+
+`pnpm setup:anatomy` installs the [Anatomy](https://github.com/wheresryan22/anatomy)
+skill for the `claude` CLI (into `~/.claude/skills`). Without it lessons
+still work, with labelled pictures instead of interactive models. The tutor
+server's first lines say whether model builds are on.
 
 Type what you want to learn on the home page, or point it at a folder of
 slides and PDFs with "Look inside". The tutor asks a question or two, plans,
@@ -107,21 +113,33 @@ of Deepgram voice is under a dollar.
   rendered to pictures with word boxes from the PDF text layer; scans and
   screenshots get boxes from local OCR (tesseract, no key, no network). The
   tutor places a page with `@page` and marks on it with `@annotate`.
-- Interactive models come from `figures/` (see its README). Each is a
-  self-contained page built with the Anatomy skill, shown in a sandboxed
-  frame. The tutor places one with `@figure`, draws simple motion with
-  `@motion` (animated SVG, seconds), and can request a new model with
-  `@build_figure`, which runs the skill through the `claude` CLI in the
-  background and adds the result to the saved board when it finishes
-  (tens of minutes). Seed more examples with `pnpm figures:seed` after
-  `npx skills add wheresryan22/anatomy -g -a claude-code`.
+- Interactive models are generated for the lesson, never picked from a
+  library. When you ask for the anatomy of a device, its insides or an
+  interactive model, the tutor offers to build that real object with
+  `@build_figure`, and draws a labelled picture of it at once to teach from.
+  You see the exact request and approve it first, because the build runs the
+  Anatomy skill through the `claude` CLI with tools on your machine; the
+  model lands on the board when it finishes (up to an hour). Built pages are
+  kept in `figures/` on your machine (git ignores them) and served in a
+  sandboxed frame. Simple motion is drawn
+  with `@motion` (animated SVG, seconds).
+- Recovery: each lesson keeps its own `claude` session. If that session is
+  gone (deleted, expired, another machine), the tutor starts a fresh one and
+  hands it the saved board and transcript, so the lesson carries on. A dropped
+  connection reconnects by itself, and opening a board in a second tab hands
+  the lesson to that tab.
+- Safety: the tutor server listens on this machine only and answers only the
+  OpenStudy web app running here, so other websites you visit cannot drive a
+  lesson, read your folders or spend your keys. It reads course material only
+  under your home folder unless you set `SOURCES_ROOT`. See the network
+  section of `.env.example` to use a tablet on a trusted network.
 
 ## Checks
 
 ```bash
 pnpm typecheck
 pnpm lint
-pnpm test                         # unit tests (shared package)
+pnpm test                         # unit tests: parser, board, session, server guard, client logic
 pnpm --filter @openstudy/web e2e  # browser tests, needs Playwright's Chromium
 ```
 
@@ -145,5 +163,5 @@ schools and public institutions. Commercial use, including selling it or
 offering it as a paid product or service, is not permitted. For a commercial
 license, contact [@delsqrdpsi](https://github.com/delsqrdpsi).
 
-Some figures under `figures/` come from the Anatomy project and stay under
-the MIT License; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Interactive models you build locally contain code from the Anatomy project,
+which stays under the MIT License; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -134,6 +134,14 @@ function mergeLineRects(rects: Rect[]): Rect[] {
   return out;
 }
 
+/** Same items in the same order: lists rebuilt on every board change compare equal when nothing in them changed. */
+export function sameList<T>(a: readonly T[] | undefined, b: readonly T[] | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 export function union(rects: Rect[]): Rect {
   const x = Math.min(...rects.map((r) => r.x));
   const y = Math.min(...rects.map((r) => r.y));

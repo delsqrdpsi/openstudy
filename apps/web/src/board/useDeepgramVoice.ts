@@ -4,6 +4,7 @@ import { estimateSpeechMs } from "./pacer";
 import { TUTOR_HTTP } from "./useLiveSession";
 import type { VoiceApi, VoiceConfig, VoiceOptions } from "./useVoice";
 import { concatBytes, pcm16ToFloat, pickRecorderMime, readTranscript } from "./deepgram";
+import { reconnectDelay } from "./liveProtocol";
 
 /**
  * Hosted voice: Aura-2 for the tutor, Nova for the student, both through
@@ -13,6 +14,31 @@ import { concatBytes, pcm16ToFloat, pickRecorderMime, readTranscript } from "./d
  * up as MediaRecorder chunks over a websocket; transcripts come back live.
  */
 const STT_URL = `${TUTOR_HTTP.replace(/^http/, "ws")}/stt`;
+
+/** Speech recognition sockets that die young in a row before the mic gives up and says so. */
+const MAX_STT_FAILURES = 6;
+
+type Meter = { ctx: AudioContext; timer: number };
+type Recording = { recorder: MediaRecorder; stream: MediaStream; ws: WebSocket; meter: Meter | null };
+
+function stopMeter(m: Meter | null) {
+  if (!m) return;
+  window.clearInterval(m.timer);
+  void m.ctx.close();
+}
+
+/** Release everything a recording holds: recorder, mic tracks, level meter and socket. */
+function teardownRecording(r: Recording | null) {
+  if (!r) return;
+  try {
+    r.recorder.stop();
+  } catch {
+    /* already stopped */
+  }
+  for (const t of r.stream.getTracks()) t.stop();
+  stopMeter(r.meter);
+  if (r.ws.readyState === WebSocket.CONNECTING || r.ws.readyState === WebSocket.OPEN) r.ws.close();
+}
 
 interface Playing {
   text: string;
@@ -48,6 +74,7 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
   const [heard, setHeard] = useState("");
   const [paused, setPaused] = useState(false);
   const pausedRef = useRef(false);
+  const [micError, setMicError] = useState<string | null>(null);
 
   const ctx = useRef<AudioContext | null>(null);
   const queue = useRef<{ text: string; onEnd?: () => void }[]>([]);
@@ -74,9 +101,10 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
   }, [sampleRate]);
 
   // Browsers only start audio after a gesture; the lesson page is reached by one, but be safe.
+  // A lesson the student paused stays suspended: clicking around must not play it on.
   useEffect(() => {
     const wake = () => {
-      if (ctx.current?.state === "suspended") void ctx.current.resume();
+      if (ctx.current?.state === "suspended" && !pausedRef.current) void ctx.current.resume();
     };
     window.addEventListener("pointerdown", wake);
     window.addEventListener("keydown", wake);
@@ -179,7 +207,8 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
     playNextRef.current = playNext;
   }, [playNext]);
 
-  const stop = useCallback(() => {
+  /** Cut the current line and drop the queue. Leaves a pause as it is (muting while paused stays paused). */
+  const halt = useCallback(() => {
     const dropped = queue.current;
     queue.current = [];
     const p = playing.current;
@@ -194,10 +223,31 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
       }
       finish(p);
     }
-    speakingRef.current = false;
-    setSpeaking(false);
+    // Only when nothing new started from an end-of-line callback: a line that is
+    // playing must stay stoppable, so it keeps its speaking flag.
+    if (!playing.current) {
+      speakingRef.current = false;
+      setSpeaking(false);
+    }
     for (const d of dropped) d.onEnd?.();
   }, [finish]);
+
+  /** Stop now and drop what is queued. A stopped lesson is no longer paused: the next line plays. */
+  const stop = useCallback(() => {
+    halt();
+    if (pausedRef.current) {
+      pausedRef.current = false;
+      setPaused(false);
+      void ctx.current?.resume();
+    }
+  }, [halt]);
+
+  /** Call from a click or key press: browsers only let audio start from a gesture. */
+  const unlock = useCallback(() => {
+    if (!enabled || typeof AudioContext === "undefined") return;
+    const ac = audio();
+    if (pausedRef.current) void ac.suspend();
+  }, [enabled, audio]);
 
   const speak = useCallback(
     (text: string, onEnd?: () => void): boolean => {
@@ -236,40 +286,48 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
       mutedRef.current = on;
       setMuted(on);
       if (on) {
-        stop();
+        halt();
         setCaption(null);
       }
     },
-    [stop],
+    [halt],
   );
 
   // ---- Microphone to Nova, through the tutor server.
-  const rec = useRef<{ recorder: MediaRecorder; stream: MediaStream; ws: WebSocket; meter: { ctx: AudioContext; timer: number } | null } | null>(null);
-  const stopMeter = (m: { ctx: AudioContext; timer: number } | null) => {
-    if (!m) return;
-    window.clearInterval(m.timer);
-    void m.ctx.close();
-  };
+  const rec = useRef<Recording | null>(null);
   const wantListening = useRef(false);
+  /** Bumped by every start and every mute: an older start that resolves late knows it is stale. */
+  const generation = useRef(0);
+  const retryTimer = useRef<number | null>(null);
+  const failures = useRef(0);
   const startRec = useCallback(async () => {
+    const gen = ++generation.current;
+    if (retryTimer.current) window.clearTimeout(retryTimer.current);
+    retryTimer.current = null;
+    // Never two recorders: whatever is running goes before a new one starts.
+    teardownRecording(rec.current);
+    rec.current = null;
     const mime = pickRecorderMime();
     if (!mime) return;
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     } catch {
+      if (gen !== generation.current) return;
       wantListening.current = false;
       setListening(false);
+      setMicError("The microphone is blocked. Allow it for this site to talk to the tutor.");
       return;
     }
-    if (!wantListening.current) {
+    // Muted (or restarted) while the browser was asking: this stream is nobody's, so release the mic.
+    if (gen !== generation.current || !wantListening.current) {
       for (const t of stream.getTracks()) t.stop();
       return;
     }
     const ws = new WebSocket(`${STT_URL}?language=${encodeURIComponent(optsRef.current.lang ?? "en")}`);
     const recorder = new MediaRecorder(stream, { mimeType: mime });
     // A small level meter on the mic, so the student can see they are being heard.
-    let meter: { ctx: AudioContext; timer: number } | null = null;
+    let meter: Meter | null = null;
     try {
       const mctx = new AudioContext();
       const analyser = mctx.createAnalyser();
@@ -287,6 +345,9 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
     } catch {
       meter = null;
     }
+    const r: Recording = { recorder, stream, ws, meter };
+    let openedAt = 0;
+    let heardBack = false;
     let heardLines: string[] = [];
     let bargedIn = false;
     const emit = () => {
@@ -297,6 +358,9 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
       if (text) optsRef.current.onUserSpeech(text);
     };
     ws.onmessage = (ev) => {
+      if (rec.current !== r) return;
+      heardBack = true;
+      failures.current = 0;
       const t = readTranscript(String(ev.data));
       if (t.kind === "final") {
         if (t.text) heardLines.push(t.text);
@@ -307,52 +371,62 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
         setHeard([...heardLines, t.text].join(" ").trim());
         if (!bargedIn && speakingRef.current && t.text.split(/\s+/).length >= 3) {
           // The student is talking over the tutor: a few real words, so speaker echo does not trip it.
+          // The lesson drops its queue first, so stopping the voice cannot start the next line.
           bargedIn = true;
-          stop();
           optsRef.current.onBargeIn();
+          stop();
         }
       }
     };
     ws.onclose = () => {
-      if (rec.current?.ws === ws) {
-        try {
-          recorder.stop();
-        } catch {
-          /* already stopped */
-        }
-        for (const tr of stream.getTracks()) tr.stop();
-        stopMeter(meter);
-        setLevel(0);
-        rec.current = null;
-        // Keep listening across a dropped socket.
-        if (wantListening.current) window.setTimeout(() => void startRec(), 1000);
+      if (rec.current !== r) return;
+      rec.current = null;
+      teardownRecording(r);
+      setLevel(0);
+      if (!wantListening.current || gen !== generation.current) return;
+      // Keep listening across a dropped socket, but a server that keeps refusing gets a backoff and then an error.
+      const lived = openedAt > 0 && performance.now() - openedAt > 10_000;
+      if (heardBack || lived) failures.current = 0;
+      else failures.current += 1;
+      if (failures.current >= MAX_STT_FAILURES) {
+        wantListening.current = false;
+        setListening(false);
+        setHeard("");
+        setMicError("Can't reach speech recognition. Check the tutor server, then turn the mic on again.");
+        return;
       }
+      retryTimer.current = window.setTimeout(() => {
+        retryTimer.current = null;
+        if (wantListening.current && gen === generation.current) void startRec();
+      }, reconnectDelay(failures.current));
     };
     recorder.ondataavailable = (e) => {
       if (e.data.size && ws.readyState === WebSocket.OPEN) ws.send(e.data);
     };
-    ws.onopen = () => recorder.start(250);
-    rec.current = { recorder, stream, ws, meter };
+    ws.onopen = () => {
+      if (rec.current !== r) return;
+      openedAt = performance.now();
+      recorder.start(250);
+    };
+    rec.current = r;
   }, [stop]);
 
   const setListeningOn = useCallback(
     (on: boolean) => {
       wantListening.current = on;
       setListening(on);
-      if (on) void startRec();
-      else {
+      if (on) {
+        failures.current = 0;
+        setMicError(null);
+        void startRec();
+      } else {
+        // Invalidate a start still waiting on the browser, and any pending retry.
+        generation.current += 1;
+        if (retryTimer.current) window.clearTimeout(retryTimer.current);
+        retryTimer.current = null;
         const r = rec.current;
         rec.current = null;
-        if (r) {
-          try {
-            r.recorder.stop();
-          } catch {
-            /* already stopped */
-          }
-          for (const t of r.stream.getTracks()) t.stop();
-          stopMeter(r.meter);
-          r.ws.close();
-        }
+        teardownRecording(r);
         setLevel(0);
         setHeard("");
       }
@@ -363,20 +437,15 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
   useEffect(
     () => () => {
       wantListening.current = false;
+      generation.current += 1;
+      if (retryTimer.current) window.clearTimeout(retryTimer.current);
       const r = rec.current;
       rec.current = null;
-      if (r) {
-        try {
-          r.recorder.stop();
-        } catch {
-          /* already stopped */
-        }
-        for (const t of r.stream.getTracks()) t.stop();
-        r.ws.close();
-      }
+      teardownRecording(r);
       const p = playing.current;
       if (p) {
         p.abort.abort();
+        if (p.finishTimer) window.clearTimeout(p.finishTimer);
         for (const s of p.sources) {
           try {
             s.stop();
@@ -391,5 +460,5 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
     [],
   );
 
-  return { provider: "deepgram", supported, muted, setMuted: setMutedOn, listening, setListening: setListeningOn, speaking, caption, rate, setRate, speak, estimate, stop, level, heard, paused, pause, resume };
+  return { provider: "deepgram", supported, muted, setMuted: setMutedOn, listening, setListening: setListeningOn, speaking, caption, rate, setRate, speak, estimate, stop, level, heard, paused, pause, resume, unlock, micError };
 }

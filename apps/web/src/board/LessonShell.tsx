@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { BoardState, TurnState } from "@openstudy/shared";
 import { Board, type BoardHandle } from "./Board";
@@ -29,6 +29,8 @@ interface Props {
   caption?: { text: string; wordIndex: number } | null;
   /** Saved board id, enables the export button. */
   boardId?: string | null;
+  /** Small cards above the input that must not block the lesson (sound prompt, the tutor's offers). */
+  notices?: React.ReactNode;
 }
 
 /**
@@ -36,14 +38,13 @@ interface Props {
  * keypoints bottom-right of the board, question options and the input bar
  * along the bottom. Shared by live lessons and fixture playback.
  */
-export function LessonShell({ title, state, turn, transcript, writingId, statusNote, onSay, onInterrupt, extraControls, inputControls, hearing, paused, caption, boardId }: Props) {
+export function LessonShell({ title, state, turn, transcript, writingId, statusNote, onSay, onInterrupt, extraControls, inputControls, hearing, paused, caption, boardId, notices }: Props) {
   const board = useRef<BoardHandle>(null);
   const [scale, setScale] = useState(1);
   const [follow, setFollow] = useState(true);
   const [panel, setPanel] = useState(true);
   const [draft, setDraft] = useState("");
   const onScale = useCallback((s: number) => setScale(s), []);
-  const listRef = useRef<HTMLDivElement>(null);
 
   // Chat panel: remember the last choice; first visit on a narrow window starts collapsed.
   useEffect(() => {
@@ -67,10 +68,6 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
     }
   };
 
-  useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
-  }, [transcript]);
-
   const submit = (text: string) => {
     if (!onSay) return;
     onSay(text);
@@ -78,6 +75,7 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
   };
 
   const busy = turn === "thinking" || turn === "speaking";
+  const turnLabel = turn === "thinking" ? "thinking" : turn === "speaking" ? "teaching" : turn === "waiting" ? "your turn" : turn === "done" ? "lesson complete" : "";
   const lastTutor = [...transcript].reverse().find((e) => e.kind === "tutor");
   const currentSection = state.sections[state.sections.length - 1];
 
@@ -107,7 +105,7 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
                 ⤓
               </a>
             )}
-            <button className={`ui-btn${follow ? " is-on" : ""}`} onClick={() => setFollow((f) => !f)} title="Camera follows the tutor">
+            <button className={`ui-btn${follow ? " is-on" : ""}`} onClick={() => setFollow((f) => !f)} title="Camera follows the tutor" aria-pressed={follow}>
               Follow
             </button>
             <button className={`ui-btn${panel ? " is-on" : ""}`} onClick={() => showPanel(!panel)} aria-label="Toggle chat history" title={panel ? "Hide chat history" : "Show chat history"} aria-expanded={panel}>
@@ -167,6 +165,7 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
               <p className="max-w-[760px] rounded-2xl bg-[rgba(246,247,244,0.85)] px-4 py-1.5 text-center text-[17px] leading-snug text-[var(--ink)] backdrop-blur-sm">{lastTutor.text.split(/(?<=[.?!])\s+/).slice(-2).join(" ")}</p>
             )
           )}
+          {notices}
           {paused && (
             <div className="pointer-events-auto rounded-full bg-[var(--ink)] px-4 py-1.5 text-[13px] font-medium text-white">Lesson paused. Press play to carry on.</div>
           )}
@@ -174,11 +173,10 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
             <div className="pointer-events-auto flex items-center gap-2">{extraControls}</div>
             {onSay ? (
               <div className="pointer-events-auto flex w-[min(640px,100%)] flex-col items-stretch gap-1.5">
-              {hearing && (
-                <div className="ui-card self-end max-w-full truncate px-3 py-1.5 text-[14px] italic text-neutral-600" aria-live="polite">
-                  {hearing}
-                </div>
-              )}
+              {/* Always mounted, so screen readers announce what the mic hears as it changes. */}
+              <div className={hearing ? "ui-card self-end max-w-full truncate px-3 py-1.5 text-[14px] italic text-neutral-600" : "sr-only"} aria-live="polite">
+                {hearing ?? ""}
+              </div>
               <form
                 className="ui-card flex w-full items-center gap-2 p-1.5 pl-3"
                 onSubmit={(e) => {
@@ -209,7 +207,13 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
               <span />
             )}
           </div>
-          {statusNote && <div className="pointer-events-auto rounded-full bg-[var(--ink)] px-4 py-1.5 text-[13px] text-white">{statusNote}</div>}
+          <div role="status" aria-live="polite" className={statusNote ? "pointer-events-auto rounded-full bg-[var(--ink)] px-4 py-1.5 text-[13px] text-white" : "sr-only"}>
+            {statusNote ?? ""}
+          </div>
+          {/* Turn changes for screen readers, whether or not the chat panel is open. */}
+          <div className="sr-only" aria-live="polite">
+            {turnLabel ? `Tutor: ${turnLabel}` : ""}
+          </div>
         </div>
       </section>
 
@@ -220,30 +224,65 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
             <h2 className="text-[15px] font-semibold">Chat history</h2>
             <span className="flex items-center gap-2 text-[12px] text-neutral-500">
               {busy && <span className="ui-pulse" />}
-              {turn === "thinking" ? "thinking" : turn === "speaking" ? "teaching" : turn === "waiting" ? "your turn" : turn === "done" ? "lesson complete" : ""}
+              {turnLabel}
               <button className="ui-btn ml-1" onClick={() => showPanel(false)} aria-label="Hide chat history" title="Hide chat history">
                 ›
               </button>
             </span>
           </header>
-          <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-5 pb-6">
-            {transcript.map((e, i) =>
-              e.kind === "tutor" ? (
-                <p key={i} className="text-[14px] leading-relaxed text-[var(--ink)]">{e.text}</p>
-              ) : e.kind === "user" ? (
-                <p key={i} className="ml-8 rounded-2xl rounded-tr-sm bg-neutral-100 px-3.5 py-2 text-[14px] leading-relaxed">{e.text}</p>
-              ) : e.kind === "section" ? (
-                <div key={i} className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--teal)]">{e.title}</div>
-              ) : (
-                <div key={i} className="flex items-baseline gap-2 text-[12px] text-neutral-500">
-                  <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-medium text-neutral-600">{e.label}</span>
-                  {e.detail && <span className="truncate">{e.detail}</span>}
-                </div>
-              ),
-            )}
-          </div>
+          <ChatList transcript={transcript} />
         </aside>
       )}
     </main>
   );
 }
+
+/** How close to the bottom (px) still counts as reading the latest line. */
+const STICK_PX = 80;
+
+/**
+ * The chat history. It follows new lines only while the student is reading
+ * the bottom; scrolling up to look back holds it there. Memoised so the list
+ * re-renders only when the transcript does, not on every board update.
+ */
+const ChatList = memo(function ChatList({ transcript }: { transcript: TranscriptEntry[] }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
+  const lastTop = useRef(0);
+
+  const onScroll = () => {
+    const el = listRef.current;
+    if (!el) return;
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    // Moving up is the student looking back; reaching the bottom again re-attaches.
+    // A smooth scroll toward the bottom only moves down, so it never detaches.
+    if (el.scrollTop < lastTop.current - 2) stick.current = fromBottom < STICK_PX;
+    else if (fromBottom < STICK_PX) stick.current = true;
+    lastTop.current = el.scrollTop;
+  };
+
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el || !stick.current) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [transcript]);
+
+  return (
+    <div ref={listRef} onScroll={onScroll} className="flex-1 space-y-3 overflow-y-auto px-5 pb-6">
+      {transcript.map((e, i) =>
+        e.kind === "tutor" ? (
+          <p key={i} className="text-[14px] leading-relaxed text-[var(--ink)]">{e.text}</p>
+        ) : e.kind === "user" ? (
+          <p key={i} className="ml-8 rounded-2xl rounded-tr-sm bg-neutral-100 px-3.5 py-2 text-[14px] leading-relaxed">{e.text}</p>
+        ) : e.kind === "section" ? (
+          <div key={i} className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--teal)]">{e.title}</div>
+        ) : (
+          <div key={i} className="flex items-baseline gap-2 text-[12px] text-neutral-500">
+            <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-medium text-neutral-600">{e.label}</span>
+            {e.detail && <span className="truncate">{e.detail}</span>}
+          </div>
+        ),
+      )}
+    </div>
+  );
+});
