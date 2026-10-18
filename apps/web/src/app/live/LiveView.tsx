@@ -115,8 +115,22 @@ export function LiveView() {
             )}
           </div>
           {live.info && (
-            <span className="ui-card px-3 py-1.5 text-[12px] text-neutral-500">
-              {live.info.brain} · {live.info.model} · {voice.provider === "deepgram" ? "aura-2" : "browser voice"}
+            <span className="ui-card flex items-center gap-1 py-1 pl-3 pr-1 text-[12px] text-neutral-500">
+              {live.info.brain} ·
+              <select
+                className="ui-btn h-7 bg-transparent px-1 text-[12px]"
+                value={live.info.model}
+                onChange={(e) => live.setModel(e.target.value)}
+                aria-label="Tutor model"
+                title="Switch the tutor's model; applies from the next turn"
+              >
+                {Array.from(new Set(["sonnet", "opus", "fable", live.info.model])).map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              · {voice.provider === "deepgram" ? "aura-2" : "browser voice"}
             </span>
           )}
         </>

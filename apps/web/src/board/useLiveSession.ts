@@ -186,6 +186,9 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
     [send],
   );
 
+  /** Switch the tutor's model from the next turn on. */
+  const setModel = useCallback((model: string) => send({ type: "model", model }), [send]);
+
   /** Stop the tutor. Lines not yet heard are dropped here and taken off the saved board by the server. */
   const interrupt = useCallback(() => {
     if (autoTimer.current) {
@@ -196,5 +199,5 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
     send({ type: "interrupt", heard: heard.current });
   }, [send]);
 
-  return { state, turn, options, transcript, connected, error, info, writingId, start, say, interrupt };
+  return { state, turn, options, transcript, connected, error, info, writingId, start, say, interrupt, setModel };
 }

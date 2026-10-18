@@ -9,7 +9,7 @@ import {
   type ServerMessage,
   type TurnState,
 } from "@openstudy/shared";
-import type { Brain } from "./brain";
+import { createBrain, type Brain } from "./brain";
 import type { ImageBackend } from "./images";
 import type { Store } from "./store";
 import { LessonPlanSchema } from "@openstudy/shared";
@@ -50,10 +50,11 @@ export class Session {
   /** Turns in a row the tutor kept going without asking anything. */
   private autoRun = 0;
   private awaitingContinue = false;
+  private pendingModel: string | null = null;
   private figureBase = process.env.TUTOR_PUBLIC_URL ?? `http://localhost:${process.env.TUTOR_PORT ?? 8787}`;
 
   constructor(
-    private readonly brain: Brain,
+    private brain: Brain,
     private readonly images: ImageBackend | null,
     private readonly store: Store,
     private readonly send: (m: ServerMessage) => void,
@@ -177,6 +178,26 @@ export class Session {
     this.send(m);
   }
 
+  /** Change the model. Same conversation: the next turn resumes the brain's session on the new model. */
+  setModel(model: string) {
+    if (model === this.brain.model) return;
+    if (this.state === "thinking" || this.state === "speaking") {
+      this.pendingModel = model;
+      return;
+    }
+    this.applyModel(model);
+  }
+
+  private applyModel(model: string) {
+    this.pendingModel = null;
+    const session = this.brain.session;
+    this.brain.close();
+    this.brain = createBrain({ model, session });
+    this.store.setModel(this.id, model);
+    this.send({ type: "session", id: this.id, brain: this.brain.name, model: this.brain.model, title: this.board.title });
+    this.send({ type: "debug", text: `model switched to ${model}` });
+  }
+
   /** The client reports the @continue narration has played: keep teaching. */
   async continue() {
     if (!this.awaitingContinue || this.state !== "waiting") return;
@@ -262,6 +283,7 @@ export class Session {
   }
 
   private async runTurn(userText: string) {
+    if (this.pendingModel) this.applyModel(this.pendingModel);
     this.abort = new AbortController();
     const { signal } = this.abort;
     this.spoken = [];
@@ -332,6 +354,7 @@ export class Session {
       this.setState("waiting");
       return;
     }
+    if (this.pendingModel) this.applyModel(this.pendingModel);
     if (ended === "continue") {
       this.awaitingContinue = true;
       this.setState("waiting", undefined, true);

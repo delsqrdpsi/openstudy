@@ -162,6 +162,9 @@ wss.on("connection", (ws: WebSocket) => {
         case "continue":
           await session?.continue();
           break;
+        case "model":
+          session?.setModel(msg.model);
+          break;
       }
     } catch (err) {
       log.error(err);

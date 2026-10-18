@@ -16,6 +16,8 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("user"), text: z.string().min(1) }),
   /** The narration of a @continue turn has finished playing; go on. */
   z.object({ type: z.literal("continue") }),
+  /** Switch the tutor's model; takes effect from the next turn, same conversation. */
+  z.object({ type: z.literal("model"), model: z.string().min(1).max(64) }),
   /** heard: how many @say lines of the current turn the student actually heard. */
   z.object({ type: z.literal("interrupt"), heard: z.number().int().nonnegative().optional() }),
 ]);

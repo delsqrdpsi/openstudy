@@ -91,6 +91,10 @@ export class Store {
     this.db.prepare("update boards set title = ?, updated_at = ? where id = ?").run(title, Date.now(), id);
   }
 
+  setModel(id: string, model: string) {
+    this.db.prepare("update boards set model = ? where id = ?").run(model, id);
+  }
+
   setBrainSession(id: string, sessionId: string) {
     this.db.prepare("update boards set brain_session_id = ? where id = ?").run(sessionId, id);
   }

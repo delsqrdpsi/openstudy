@@ -9,6 +9,7 @@ import { readMaterial, type Material } from "@/lib/materials";
 const MODELS = [
   { id: "sonnet", label: "Sonnet (fast)" },
   { id: "opus", label: "Opus (deeper)" },
+  { id: "fable", label: "Fable (deepest, slow)" },
 ];
 
 export default function Home() {
