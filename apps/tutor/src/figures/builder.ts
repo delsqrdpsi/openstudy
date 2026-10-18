@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { importFigure, type FigureMeta } from "./index";
+import { getFigure, importFigure, type FigureMeta } from "./index";
 import { log } from "../log";
 
 /**
@@ -26,13 +26,16 @@ export const listJobs = () => [...jobs.values()];
 export const getJob = (id: string) => jobs.get(id) ?? null;
 
 export function startBuild(opts: { name: string; concept: string; onDone?: (job: BuildJob) => void }): BuildJob {
-  const name = opts.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "figure";
+  let name = opts.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "figure";
+  // Never overwrite a figure that is already in the library.
+  if (getFigure(name)) name = `${name.slice(0, 34)}-${Date.now().toString(36).slice(-5)}`;
   const job: BuildJob = { id: `${name}-${Date.now().toString(36)}`, name, concept: opts.concept, status: "running", startedAt: Date.now() };
   jobs.set(job.id, job);
   const cwd = mkdtempSync(join(tmpdir(), "openstudy-figure-"));
   const model = process.env.FIGURE_MODEL ?? "opus";
   const prompt =
-    `/anatomy Build a Figure (40 to 80 parts, no WebGL, no 3D mode) that explains: ${opts.concept}. ` +
+    // The concept is plain words (cleaned upstream and approved by the student); it is quoted as data, not instructions.
+    `/anatomy Build a Figure (40 to 80 parts, no WebGL, no 3D mode) that explains the concept quoted here: "${opts.concept.replace(/"/g, "'")}". ` +
     `It is for a student's whiteboard, so keep the card compact and the motion calm. Write a framework-free Node build script in ./${name}/build.mjs that imports the kit from the skill folder, ` +
     `build the LIGHT theme page as ./${name}/${name}-light.html, run the audit and line checks, and stop when the page exists. Do not publish anything.`;
   const args = ["-p", prompt, "--output-format", "json", "--model", model, "--permission-mode", "acceptEdits", "--allowedTools", "Bash,Read,Write,Edit,Glob,Grep,Skill", "--max-budget-usd", process.env.FIGURE_BUDGET_USD ?? "6"];
@@ -46,7 +49,10 @@ export function startBuild(opts: { name: string; concept: string; onDone?: (job:
   child.stderr.on("data", (d) => (stderr += d));
   child.stdout.on("data", () => {});
   const timer = setTimeout(() => child.kill("SIGTERM"), Number(process.env.FIGURE_TIMEOUT_MS ?? 90 * 60 * 1000));
+  let finished = false;
   child.on("close", (code) => {
+    if (finished) return;
+    finished = true;
     clearTimeout(timer);
     job.finishedAt = Date.now();
     const page = findLargestHtml(cwd);
@@ -72,6 +78,20 @@ export function startBuild(opts: { name: string; concept: string; onDone?: (job:
         job.error = e instanceof Error ? e.message : String(e);
       }
     }
+    // The page has been copied into the library; the scratch folder is not needed any more.
+    rmSync(cwd, { recursive: true, force: true });
+    opts.onDone?.(job);
+  });
+  child.on("error", (e) => {
+    // 'close' may not follow a failed spawn; the job must still end.
+    log.warn("figure build could not start", job.id, e.message);
+    if (finished) return;
+    finished = true;
+    clearTimeout(timer);
+    job.status = "failed";
+    job.error = `could not start claude: ${e.message}`;
+    job.finishedAt = Date.now();
+    rmSync(cwd, { recursive: true, force: true });
     opts.onDone?.(job);
   });
   return job;

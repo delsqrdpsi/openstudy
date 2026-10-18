@@ -33,7 +33,10 @@ export const emptyUsage = (subscription = true): Usage => ({
 });
 
 export interface TurnUsage {
+  /** The CLI's running total for its session (it is cumulative across resumed turns, not per turn). */
   cost_usd?: number;
+  /** The CLI session the total belongs to. */
+  session?: string;
   usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
 }
 
@@ -56,16 +59,29 @@ export class UsageMeter {
     for (const fn of this.listeners) fn(u);
   }
 
+  /** One finished brain turn. Tokens are per turn; the cost is the session's running total, so only the increase is added. */
   turn(meta: TurnUsage | undefined) {
+    if (!meta) return; // a turn cut off before the CLI reported anything costs nothing we can see
     const t = this.usage.tutor;
-    const u = meta?.usage ?? {};
+    const u = meta.usage;
     t.turns += 1;
-    t.inputTokens += u.input_tokens ?? 0;
-    t.outputTokens += u.output_tokens ?? 0;
-    t.cacheReadTokens += u.cache_read_input_tokens ?? 0;
-    t.cacheWriteTokens += u.cache_creation_input_tokens ?? 0;
-    t.contextTokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
-    t.costUsd = round(t.costUsd + (meta?.cost_usd ?? 0), 4);
+    if (u) {
+      t.inputTokens += u.input_tokens ?? 0;
+      t.outputTokens += u.output_tokens ?? 0;
+      t.cacheReadTokens += u.cache_read_input_tokens ?? 0;
+      t.cacheWriteTokens += u.cache_creation_input_tokens ?? 0;
+      t.contextTokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+    }
+    const total = meta.cost_usd ?? 0;
+    let delta = total;
+    if (meta.session) {
+      const seen = (t.sessionCosts ??= {});
+      const prev = seen[meta.session] ?? 0;
+      // A smaller total means the CLI started counting afresh; take it as this turn's cost.
+      delta = total >= prev ? total - prev : total;
+      seen[meta.session] = total;
+    }
+    t.costUsd = round(t.costUsd + delta, 6);
     this.changed();
   }
 

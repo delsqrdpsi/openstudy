@@ -1,3 +1,4 @@
+import DOMPurify from "dompurify";
 import rough from "roughjs";
 import type { RoughSVG } from "roughjs/bin/svg";
 
@@ -14,7 +15,8 @@ export interface SketchOptions {
 }
 
 const GEOMETRY = new Set(["line", "rect", "circle", "ellipse", "polyline", "polygon", "path"]);
-const DANGEROUS_ATTR = /^(on|xlink:href|href)$/i;
+// Event handlers (onclick, onload, ...) and links never survive into the page.
+const DANGEROUS_ATTR = /^(on.*|xlink:href|href)$/i;
 
 export function sketchSvg(svgText: string, opts: SketchOptions = {}): string {
   const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
@@ -45,7 +47,9 @@ export function sketchSvg(svgText: string, opts: SketchOptions = {}): string {
   walk(src, geom, text, rc);
   out.appendChild(geom);
   out.appendChild(text);
-  return new XMLSerializer().serializeToString(out);
+  // Belt and braces: the result is set as innerHTML, so it goes through the
+  // same sanitizer as text blocks, with the SVG and filter profiles.
+  return DOMPurify.sanitize(new XMLSerializer().serializeToString(out), { USE_PROFILES: { svg: true, svgFilters: true } });
 }
 
 function walk(node: Element, geom: SVGGElement, text: SVGGElement, rc: RoughSVG) {
@@ -168,7 +172,9 @@ const MOTION_ALLOWED = new Set([
   "svg", "g", "defs", "line", "rect", "circle", "ellipse", "polyline", "polygon", "path", "text", "tspan", "title",
   "animate", "animatetransform", "animatemotion", "mpath", "set", "lineargradient", "radialgradient", "stop", "clippath", "mask", "use", "style",
 ]);
-const MOTION_BAD_ATTR = /^(on|xlink:href|href|xmlns:xlink)$/i;
+const MOTION_BAD_ATTR = /^(on.*|xlink:href|href|xmlns:xlink)$/i;
+// An animation may not retarget a link or an event handler.
+const MOTION_BAD_TARGET = /^(on.*|xlink:href|href)$/i;
 
 export function motionSvg(svgText: string): string {
   const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
@@ -182,10 +188,13 @@ export function motionSvg(svgText: string): string {
         continue;
       }
       for (const a of Array.from(child.attributes)) {
+        const localRef = name === "use" && (a.name === "href" || a.name === "xlink:href") && a.value.trim().startsWith("#");
+        if (localRef) continue;
         if (MOTION_BAD_ATTR.test(a.name)) child.removeAttribute(a.name);
-        else if (name === "use" && a.name === "href" && !a.value.startsWith("#")) child.removeAttribute(a.name);
+        else if (a.name.toLowerCase() === "attributename" && MOTION_BAD_TARGET.test(a.value.trim())) child.remove();
         else if (a.name === "font-family") child.setAttribute("font-family", "var(--wb-font-head)");
       }
+      if (!child.parentNode) continue;
       if (name === "style" && /url\(|@import|expression/i.test(child.textContent ?? "")) child.remove();
       else walk(child);
     }

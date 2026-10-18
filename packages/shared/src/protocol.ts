@@ -54,12 +54,34 @@ type Mode =
   | { kind: "html"; id: string }
   | { kind: "svg"; id: string; column: number; caption?: string; buf: string; motion: boolean };
 
+/** Commands the parser knows. Inside a block, any other line starting with @ (a CSS @keyframes, an email) is content. */
+const COMMANDS = new Set(["end", "say", "section", "ask", "continue", "done", "html", "svg", "motion", "figure", "page", "build_figure", "image", "annotate", "focus", "remove"]);
+
+/** The snake_case form block ids are stored in; references to a block go through the same function. */
+export function slugId(id: string): string {
+  const s = id.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  return s.slice(0, 60);
+}
+
+export interface ProtocolOptions {
+  /** Ids already on the board from earlier turns, so generated ids (block, ann, page_3) do not replace them. */
+  existingIds?: Iterable<string>;
+}
+
 export class ProtocolParser {
   private buf = "";
   private mode: Mode = { kind: "idle" };
   private seen = new Set<string>();
+  private readonly existing: Set<string>;
+  /** Part of the current line was already streamed, so the rest is content, never a command. */
+  private midLine = false;
 
-  constructor(private sink: ProtocolSink) {}
+  constructor(
+    private sink: ProtocolSink,
+    opts: ProtocolOptions = {},
+  ) {
+    this.existing = new Set(opts.existingIds ?? []);
+  }
 
   /** Feed streamed text. Safe to call with any chunk boundaries. */
   feed(chunk: string) {
@@ -72,11 +94,12 @@ export class ProtocolParser {
       this.line(line, true);
     }
     // Stream a partial trailing line when it is clearly html content.
-    if (this.mode.kind === "html" && this.buf.length && !this.buf.startsWith("@")) {
+    if (this.mode.kind === "html" && this.buf.length && (this.midLine || !this.buf.trimStart().startsWith("@"))) {
       const safe = safePrefix(this.buf);
       if (safe) {
         this.sink.event({ type: "block.append", id: this.mode.id, html: safe });
         this.buf = this.buf.slice(safe.length);
+        this.midLine = true;
       }
     }
   }
@@ -93,9 +116,16 @@ export class ProtocolParser {
 
   private line(raw: string, complete: boolean) {
     const line = raw.replace(/\r$/, "");
-    if (line.startsWith("@")) {
-      this.command(line);
-      return;
+    const continued = this.midLine;
+    this.midLine = false;
+    const trimmed = line.trimStart();
+    if (!continued && trimmed.startsWith("@")) {
+      const name = /^@(\w+)/.exec(trimmed)?.[1] ?? "";
+      // In a block, only real commands end it; outside, an unknown command is reported.
+      if (COMMANDS.has(name) || this.mode.kind === "idle") {
+        this.command(trimmed);
+        return;
+      }
     }
     if (this.mode.kind === "html") {
       this.sink.event({ type: "block.append", id: this.mode.id, html: line + (complete ? "\n" : "") });
@@ -164,7 +194,7 @@ export class ProtocolParser {
           this.sink.signal({ type: "error", message: "figure needs name", line });
           return;
         }
-        const id = this.uniqueId(attrs.id ?? attrs.name);
+        const id = attrs.id ? this.uniqueId(attrs.id) : this.freshId(attrs.name);
         this.sink.signal({ type: "figure", id, column: num(attrs.col), name: attrs.name, caption: attrs.caption });
         return;
       }
@@ -175,7 +205,7 @@ export class ProtocolParser {
           this.sink.signal({ type: "error", message: "page needs source and page", line });
           return;
         }
-        const id = this.uniqueId(attrs.id ?? `page_${page}`);
+        const id = attrs.id ? this.uniqueId(attrs.id) : this.freshId(`page_${page}`);
         this.sink.signal({ type: "page", id, column: num(attrs.col), source: attrs.source, page, caption: attrs.caption });
         return;
       }
@@ -200,25 +230,30 @@ export class ProtocolParser {
       }
       case "annotate": {
         this.closeOpen();
-        const id = this.uniqueId(attrs.id ?? `ann_${this.seen.size}`);
+        const id = attrs.id ? this.uniqueId(attrs.id) : this.freshId("ann");
         const region = parseRegion(attrs.region, attrs.at);
         if (!region && !attrs.match) {
           this.sink.signal({ type: "error", message: "annotation needs match, region or at", line });
           return;
         }
         const block = this.validate(
-          { id, type: "annotation", target: attrs.target ?? "", kind: attrs.kind ?? "highlight", match: attrs.match ?? "", region, color: attrs.color },
+          { id, type: "annotation", target: slugId(attrs.target ?? ""), kind: attrs.kind ?? "highlight", match: attrs.match ?? "", region, color: attrs.color },
           line,
         );
         if (block) this.sink.event({ type: "block.add", block });
         return;
       }
       case "focus":
-        if (attrs.id) this.sink.event({ type: "focus", id: attrs.id });
+      case "remove": {
+        // Same slug as the block was stored under, so "Step-1" finds step_1 and never reaches the board as an invalid id.
+        const id = slugId(attrs.id ?? "");
+        if (!id) {
+          this.sink.signal({ type: "error", message: `${name} needs id`, line });
+          return;
+        }
+        this.sink.event(name === "focus" ? { type: "focus", id } : { type: "block.remove", id });
         return;
-      case "remove":
-        if (attrs.id) this.sink.event({ type: "block.remove", id: attrs.id });
-        return;
+      }
       default:
         this.sink.signal({ type: "error", message: `unknown command @${name}`, line });
     }
@@ -238,12 +273,27 @@ export class ProtocolParser {
     this.mode = { kind: "idle" };
   }
 
+  /**
+   * The id the model asked for. Re-using an id from an earlier turn replaces
+   * that block (how the plan gets its check marks); within one turn a repeat
+   * gets a suffix. No id at all means a fresh one.
+   */
   private uniqueId(id: string | undefined): string {
-    let base = (id ?? "block").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "") || "block";
-    if (base.length > 60) base = base.slice(0, 60);
+    if (!id) return this.freshId("block");
+    const base = slugId(id) || "block";
     let out = base;
     let n = 2;
     while (this.seen.has(out)) out = `${base}_${n++}`;
+    this.seen.add(out);
+    return out;
+  }
+
+  /** A generated id that clashes with nothing on the board or in this turn. */
+  private freshId(hint: string): string {
+    const base = slugId(hint) || "block";
+    let out = base;
+    let n = 2;
+    while (this.seen.has(out) || this.existing.has(out)) out = `${base}_${n++}`;
     this.seen.add(out);
     return out;
   }

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LESSON_PLAN_JSON_SCHEMA, LessonPlanSchema, type LessonPlan } from "@openstudy/shared";
@@ -27,8 +27,17 @@ export async function planLesson(input: {
   } Section ids are snake_case.${
     input.figures ? ` These interactive models exist and the tutor can show them; mention a fitting one by name in a section's example field as "model: <name>":\n${input.figures}` : ""
   } Respond only with the JSON object.`;
+  // Up to 30k characters per file and 150k in all: enough to plan from, small enough to stay fast.
+  let budget = 150_000;
   const mats = input.materials.length
-    ? "\n\nMaterials the student attached (source of truth):\n" + input.materials.map((m) => `--- ${m.name} ---\n${m.text.slice(0, 30000)}`).join("\n\n")
+    ? "\n\nMaterials the student attached (source of truth):\n" +
+      input.materials
+        .map((m) => {
+          const text = m.text.slice(0, Math.min(30000, Math.max(0, budget)));
+          budget -= text.length;
+          return `--- ${m.name} ---\n${text}`;
+        })
+        .join("\n\n")
     : "";
   const intake = (input.intake ?? []).map((t) => `${t.role === "tutor" ? "Tutor" : "Student"}: ${t.text}`).join("\n");
   const user = `Topic the student typed: "${input.topic}"${mats}${intake ? `\n\nIntake conversation:\n${intake}` : ""}\n\nWrite the lesson plan.`;
@@ -40,27 +49,36 @@ export async function planLesson(input: {
     "--tools", "",
     "--no-session-persistence",
     "--model", model,
-    "--system-prompt", system,
+    "--system-prompt-file", "system.md",
     "--json-schema", JSON.stringify(LESSON_PLAN_JSON_SCHEMA),
-    user,
   ];
   const env = { ...process.env };
   delete env.CLAUDE_CODE_SESSION_ID;
   delete env.CLAUDE_CODE_CHILD_SESSION;
   delete env.CLAUDECODE;
   const cwd = mkdtempSync(join(tmpdir(), "openstudy-plan-"));
+  // System prompt in a file and the request on stdin: no argv size limit, no option parsing of student text.
+  writeFileSync(join(cwd, "system.md"), system);
   const t0 = Date.now();
 
-  const out = await new Promise<string>((resolve, reject) => {
-    const child = spawn(process.env.CLAUDE_BIN ?? "claude", args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (d) => (stdout += d));
-    child.stderr.on("data", (d) => (stderr += d));
-    input.signal?.addEventListener("abort", () => child.kill("SIGTERM"), { once: true });
-    child.on("error", reject);
-    child.on("close", (code) => (code === 0 ? resolve(stdout) : reject(new Error(stderr.trim().split("\n").at(-1) || `planner exited ${code}`))));
-  });
+  let out: string;
+  try {
+    out = await new Promise<string>((resolve, reject) => {
+      if (input.signal?.aborted) return reject(new Error("planner cancelled"));
+      const child = spawn(process.env.CLAUDE_BIN ?? "claude", args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (d) => (stdout += d));
+      child.stderr.on("data", (d) => (stderr += d));
+      child.stdin.on("error", () => {});
+      child.stdin.end(user);
+      input.signal?.addEventListener("abort", () => child.kill("SIGTERM"), { once: true });
+      child.on("error", reject);
+      child.on("close", (code) => (code === 0 ? resolve(stdout) : reject(new Error(stderr.trim().split("\n").at(-1) || `planner exited ${code}`))));
+    });
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
 
   const result = JSON.parse(out) as { is_error?: boolean; result?: string; structured_output?: unknown; total_cost_usd?: number };
   if (result.is_error) throw new Error(String(result.result));

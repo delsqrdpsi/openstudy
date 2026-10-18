@@ -122,9 +122,17 @@ Action $\\rightarrow$ state changes $\\rightarrow$ reward $\\rightarrow$ better 
 }
 
 export function intakeMessage(topic: string, materials: { name: string; text: string }[]): string {
+  // Up to 20k characters per file and 100k in all; the full text stays with the planner and the page list.
+  let budget = 100_000;
   const mats = materials.length
     ? "\n\nThe student attached material. Use it as the source of truth for what to teach:\n" +
-      materials.map((m) => `--- ${m.name} ---\n${m.text.slice(0, 20000)}`).join("\n\n")
+      materials
+        .map((m) => {
+          const text = m.text.slice(0, Math.min(20000, Math.max(0, budget)));
+          budget -= text.length;
+          return `--- ${m.name} ---\n${text}${text.length < m.text.length ? "\n[...]" : ""}`;
+        })
+        .join("\n\n")
     : "";
   return `A new student just sat down. They typed:\n\n"${topic}"${mats}\n\nStart the intake: greet them, put a title on the board, ask one or two questions, then @ask.`;
 }
