@@ -10,7 +10,10 @@ export interface CanvasStatus {
   connected: boolean;
   domain?: string;
   user?: string;
+  /** token: an access token; cookie: a browser login kept by the server. */
+  auth?: "token" | "cookie";
 }
+export type LoginState = { state: "idle" } | { state: "waiting"; domain: string } | { state: "done"; domain: string; user: string } | { state: "failed"; domain: string; error: string };
 export interface School {
   name: string;
   domain: string;
@@ -58,6 +61,10 @@ export const canvas = {
   connect: (domain: string, token: string) =>
     call<CanvasStatus>("/canvas/connect", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ domain, token }) }),
   disconnect: () => call<{ ok: true }>("/canvas", { method: "DELETE" }),
+  /** No token: the server opens a browser window on the school's login and keeps the session. */
+  login: (domain: string) => call<LoginState>("/canvas/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ domain }) }),
+  loginState: () => call<LoginState>("/canvas/login"),
+  cancelLogin: () => call<{ ok: true }>("/canvas/login", { method: "DELETE" }),
   courses: () => call<{ courses: Course[] }>("/canvas/courses").then((r) => r.courses),
   items: (courseId: number) => call<{ items: CourseItem[] }>(`/canvas/courses/${courseId}/items`).then((r) => r.items),
   /** Have the server read the whole course (once; cached), so the tutor can pull from it on demand. */

@@ -10,6 +10,7 @@ import { listJobs } from "./figures/builder";
 import { bridgeTranscription, SAMPLE_RATE, speak, voiceConfig, VoiceError } from "./voice/deepgram";
 import { CanvasClient, CanvasError, normalizeDomain, searchSchools, type CanvasConnection } from "./canvas/client";
 import { courseStatus, openCourse, type CourseIndex } from "./canvas/index";
+import { cancelLogin, loginState, startLogin } from "./canvas/login";
 import { log } from "./log";
 
 const PORT = Number(process.env.TUTOR_PORT ?? 8787);
@@ -136,6 +137,7 @@ async function readJson(req: import("node:http").IncomingMessage): Promise<Recor
  *   GET    /canvas                      who is connected (domain, user) or {connected:false}
  *   GET    /canvas/schools?q=           step one: schools matching a name
  *   POST   /canvas/connect {domain,token}  step two: check the token and save it
+ *   POST   /canvas/login {domain}       step two without a token: open a browser window to log in; GET for progress, DELETE to cancel
  *   DELETE /canvas                      forget the connection
  *   GET    /canvas/courses              the student's active courses
  *   POST   /canvas/courses/:id/index {name}  read the whole course in the background (cached on disk); returns progress
@@ -154,11 +156,11 @@ async function canvasRoute(url: URL, req: import("node:http").IncomingMessage, r
   const conn = store.getSetting<CanvasConnection>("canvas");
   const client = () => {
     if (!conn) throw new CanvasError("Canvas is not connected", 401);
-    return new CanvasClient(conn.domain, conn.token);
+    return CanvasClient.from(conn);
   };
   try {
     const path = url.pathname;
-    if (path === "/canvas" && req.method === "GET") return json(res, 200, conn ? { connected: true, domain: conn.domain, user: conn.user } : { connected: false });
+    if (path === "/canvas" && req.method === "GET") return json(res, 200, conn ? { connected: true, domain: conn.domain, user: conn.user, auth: conn.auth } : { connected: false });
     if (path === "/canvas" && req.method === "DELETE") {
       store.deleteSetting("canvas");
       return json(res, 200, { ok: true });
@@ -178,9 +180,22 @@ async function canvasRoute(url: URL, req: import("node:http").IncomingMessage, r
       if (!domain) throw new CanvasError("that does not look like a Canvas address", 400);
       if (!token) throw new CanvasError("paste the access token", 400);
       const who = await new CanvasClient(domain, token).self(signal);
-      store.setSetting("canvas", { domain, token, user: who.name } satisfies CanvasConnection);
+      store.setSetting("canvas", { domain, auth: "token", secret: token, user: who.name } satisfies CanvasConnection);
       log.info("canvas connected:", domain, "as", who.name);
-      return json(res, 200, { connected: true, domain, user: who.name });
+      return json(res, 200, { connected: true, domain, user: who.name, auth: "token" });
+    }
+    if (path === "/canvas/login") {
+      if (req.method === "POST") {
+        const domain = normalizeDomain(String((await readJson(req)).domain ?? ""));
+        if (!domain) throw new CanvasError("that does not look like a Canvas address", 400);
+        startLogin(domain, (c) => store.setSetting("canvas", c));
+        return json(res, 200, loginState());
+      }
+      if (req.method === "DELETE") {
+        cancelLogin();
+        return json(res, 200, { ok: true });
+      }
+      return json(res, 200, loginState());
     }
     if (path === "/canvas/courses" && req.method === "GET") return json(res, 200, { courses: await client().courses(signal) });
     const course = /^\/canvas\/courses\/(\d+)\/(items|text|index|search)$/.exec(path);
@@ -234,7 +249,7 @@ async function canvasRoute(url: URL, req: import("node:http").IncomingMessage, r
 function courseFor(courseId: number, name: string): CourseIndex | null {
   const conn = store.getSetting<CanvasConnection>("canvas");
   if (!conn) return null;
-  return openCourse(new CanvasClient(conn.domain, conn.token), conn.domain, courseId, name);
+  return openCourse(CanvasClient.from(conn), conn.domain, courseId, name);
 }
 
 // Two websocket paths on one server: /ws for the lesson, /stt for the student's microphone.

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { canvas, tokenSettingsUrl, type CanvasStatus, type Course, type CourseItem, type IndexStatus, type School } from "@/lib/canvas";
+import { canvas, tokenSettingsUrl, type CanvasStatus, type Course, type CourseItem, type IndexStatus, type LoginState, type School } from "@/lib/canvas";
 import type { Material } from "@/lib/materials";
 
 /**
@@ -24,6 +24,7 @@ export function CanvasPanel({
 }) {
   const [status, setStatus] = useState<CanvasStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [relogin, setRelogin] = useState(false);
 
   useEffect(() => {
     canvas
@@ -40,10 +41,16 @@ export function CanvasPanel({
           {status?.connected && (
             <span className="ml-2 font-normal text-neutral-500">
               {status.domain} · {status.user}
+              {status.auth === "cookie" && " · browser login"}
             </span>
           )}
         </div>
         <div className="flex items-center gap-1">
+          {status?.connected && status.auth === "cookie" && !relogin && (
+            <button className="ui-btn text-[12px] text-neutral-500" onClick={() => setRelogin(true)} title="Browser logins expire after a day or two">
+              Log in again
+            </button>
+          )}
           {status?.connected && (
             <button
               className="ui-btn text-[12px] text-neutral-500"
@@ -62,6 +69,7 @@ export function CanvasPanel({
       </div>
       {error && <p className="mt-2 text-[13px] text-[var(--coral)]">{error}</p>}
       {status && !status.connected && <Connect onConnected={setStatus} />}
+      {status?.connected && status.auth === "cookie" && relogin && <BrowserLogin domain={status.domain!} onConnected={(s) => { setStatus(s); setRelogin(false); }} onCancel={() => setRelogin(false)} />}
       {status?.connected && (course ? <CourseView course={course} onChange={() => onCourse(null)} onMaterial={onMaterial} onSkipped={onSkipped} /> : <CourseList onPick={onCourse} />)}
     </div>
   );
@@ -77,6 +85,7 @@ function Connect({ onConnected }: { onConnected: (s: CanvasStatus) => void }) {
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viaBrowser, setViaBrowser] = useState(false);
   const abort = useRef<AbortController | null>(null);
 
   // Search as they type, a beat after the last keystroke.
@@ -149,6 +158,15 @@ function Connect({ onConnected }: { onConnected: (s: CanvasStatus) => void }) {
     );
   }
 
+  if (viaBrowser) {
+    return (
+      <div className="mt-2">
+        <div className="text-[12px] font-semibold uppercase tracking-wide text-neutral-400">Step 2 of 2 · Log in to Canvas</div>
+        <BrowserLogin domain={school.domain} onConnected={onConnected} onCancel={() => setViaBrowser(false)} />
+      </div>
+    );
+  }
+
   return (
     <div className="mt-2">
       <div className="text-[12px] font-semibold uppercase tracking-wide text-neutral-400">Step 2 of 2 · Get an access token</div>
@@ -180,6 +198,84 @@ function Connect({ onConnected }: { onConnected: (s: CanvasStatus) => void }) {
         </button>
       </div>
       {error && <p className="mt-1 text-[12px] text-[var(--coral)]">{error}</p>}
+      <p className="mt-2 text-[13px] text-neutral-600">
+        No <b>+ New Access Token</b> button? Some schools switch it off.{" "}
+        <button className="text-[var(--teal)] underline" onClick={() => setViaBrowser(true)}>
+          Log in through a browser window instead
+        </button>
+        .
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The server opens Chrome on the school's Canvas login; the student signs in
+ * there (SSO and Duo included) and this polls until the session is in.
+ */
+function BrowserLogin({ domain, onConnected, onCancel }: { domain: string; onConnected: (s: CanvasStatus) => void; onCancel: () => void }) {
+  const [state, setState] = useState<LoginState | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let stop = false;
+    let timer: number | null = null;
+    const poll = () =>
+      canvas
+        .loginState()
+        .then((s) => {
+          if (stop) return;
+          setState(s);
+          if (s.state === "waiting") timer = window.setTimeout(poll, 1500);
+          else if (s.state === "done") onConnected({ connected: true, domain: s.domain, user: s.user, auth: "cookie" });
+        })
+        .catch((e: Error) => {
+          if (!stop) setError(e.message);
+        });
+    canvas
+      .login(domain)
+      .then((s) => {
+        if (stop) return;
+        setState(s);
+        if (s.state === "waiting") timer = window.setTimeout(poll, 1500);
+      })
+      .catch((e: Error) => {
+        if (!stop) setError(e.message);
+      });
+    return () => {
+      stop = true;
+      if (timer) window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [domain]);
+
+  const cancel = () => {
+    canvas.cancelLogin().catch(() => {});
+    onCancel();
+  };
+
+  if (error || state?.state === "failed") {
+    return (
+      <div className="mt-1">
+        <p className="text-[13px] text-[var(--coral)]">{error ?? (state?.state === "failed" ? state.error : "")}</p>
+        <button className="ui-btn mt-2 text-[12px]" onClick={cancel}>
+          Back
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-1">
+      <p className="text-[13px] text-neutral-600">
+        A browser window is opening on <b>{domain}</b>. Sign in there the way you always do (your school login, Duo and all). This page updates by itself once you are in, and the window closes. Nothing about the login is stored except the Canvas session, on this machine.
+      </p>
+      <p className="mt-2 flex items-center gap-2 text-[12px] text-neutral-500">
+        <span className="ui-pulse inline-block h-2 w-2 rounded-full bg-[var(--teal)]" />
+        Waiting for the login...
+        <button className="ui-btn ml-auto text-[12px]" onClick={cancel}>
+          Cancel
+        </button>
+      </p>
     </div>
   );
 }

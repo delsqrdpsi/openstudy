@@ -1,13 +1,16 @@
 /**
- * Canvas LMS. The student finds their school, pastes an access token from
- * their Canvas settings, and can then pull pages, assignments and files from
- * their courses into a lesson. The token stays on this server; the browser
- * only ever sees course and item names.
+ * Canvas LMS. The student finds their school, then either pastes an access
+ * token from their Canvas settings or, where the school has switched tokens
+ * off, logs in through a browser window and the session cookie is kept
+ * instead. Either way the secret stays on this server; the browser only
+ * ever sees course and item names.
  */
 
 export interface CanvasConnection {
   domain: string;
-  token: string;
+  /** How the secret is sent: a bearer token, or the session cookies of a browser login. */
+  auth: "token" | "cookie";
+  secret: string;
   user: string;
 }
 
@@ -123,20 +126,28 @@ export function htmlToText(html: string): string {
 export class CanvasClient {
   constructor(
     private domain: string,
-    private token: string,
+    private secret: string,
+    private auth: "token" | "cookie" = "token",
   ) {}
+
+  static from(conn: CanvasConnection): CanvasClient {
+    return new CanvasClient(conn.domain, conn.secret, conn.auth);
+  }
 
   private async get(pathOrUrl: string, signal?: AbortSignal): Promise<Response> {
     const url = pathOrUrl.startsWith("https://") ? pathOrUrl : `https://${this.domain}/api/v1${pathOrUrl}`;
     if (new URL(url).hostname !== this.domain) throw new CanvasError("unexpected host in Canvas link");
     let res: Response;
     try {
-      res = await fetch(url, { signal, headers: { authorization: `Bearer ${this.token}`, accept: "application/json" } });
+      const headers: Record<string, string> = { accept: "application/json" };
+      if (this.auth === "cookie") headers.cookie = this.secret;
+      else headers.authorization = `Bearer ${this.secret}`;
+      res = await fetch(url, { signal, headers });
     } catch (err) {
       if (signal?.aborted) throw err;
       throw new CanvasError(`could not reach ${this.domain}`);
     }
-    if (res.status === 401) throw new CanvasError("Canvas did not accept the access token", 401);
+    if (res.status === 401) throw new CanvasError(this.auth === "cookie" ? "Your Canvas login has expired; log in again" : "Canvas did not accept the access token", 401);
     if (res.status === 403) throw new CanvasError("Canvas says you do not have access to that", 403);
     if (res.status === 404) throw new CanvasError("not found on Canvas", 404);
     if (!res.ok) throw new CanvasError(`Canvas returned ${res.status}`);
