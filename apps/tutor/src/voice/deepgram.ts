@@ -78,8 +78,8 @@ export function bridgeTranscription(client: WebSocket, params: URLSearchParams) 
   url.searchParams.set("language", params.get("language") ?? "en");
   url.searchParams.set("smart_format", "true");
   url.searchParams.set("interim_results", "true");
-  url.searchParams.set("endpointing", "300");
-  url.searchParams.set("utterance_end_ms", "1200");
+  url.searchParams.set("endpointing", "500");
+  url.searchParams.set("utterance_end_ms", "1500");
   url.searchParams.set("vad_events", "true");
   const up = new WebSocket(url, { headers: { Authorization: `Token ${k}` } });
   const held: Buffer[] = [];

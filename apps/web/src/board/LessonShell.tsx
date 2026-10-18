@@ -19,6 +19,12 @@ interface Props {
   onInterrupt?: () => void;
   /** Extra controls rendered in the bottom-left cluster (playback, voice). */
   extraControls?: React.ReactNode;
+  /** Controls inside the input bar, next to Send (the mic). */
+  inputControls?: React.ReactNode;
+  /** Live words from speech recognition, shown above the input while the student talks. */
+  hearing?: string | null;
+  /** The lesson is paused: shown as a banner, and the input says so. */
+  paused?: boolean;
   /** Spoken caption with word progress; falls back to the last tutor line. */
   caption?: { text: string; wordIndex: number } | null;
   /** Saved board id, enables the export button. */
@@ -30,7 +36,7 @@ interface Props {
  * keypoints bottom-right of the board, question options and the input bar
  * along the bottom. Shared by live lessons and fixture playback.
  */
-export function LessonShell({ title, state, turn, transcript, writingId, statusNote, onSay, onInterrupt, extraControls, caption, boardId }: Props) {
+export function LessonShell({ title, state, turn, transcript, writingId, statusNote, onSay, onInterrupt, extraControls, inputControls, hearing, paused, caption, boardId }: Props) {
   const board = useRef<BoardHandle>(null);
   const [scale, setScale] = useState(1);
   const [follow, setFollow] = useState(true);
@@ -161,11 +167,20 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
               <p className="max-w-[760px] rounded-2xl bg-[rgba(246,247,244,0.85)] px-4 py-1.5 text-center text-[17px] leading-snug text-[var(--ink)] backdrop-blur-sm">{lastTutor.text.split(/(?<=[.?!])\s+/).slice(-2).join(" ")}</p>
             )
           )}
+          {paused && (
+            <div className="pointer-events-auto rounded-full bg-[var(--ink)] px-4 py-1.5 text-[13px] font-medium text-white">Lesson paused. Press play to carry on.</div>
+          )}
           <div className="flex w-full items-end justify-between gap-3">
             <div className="pointer-events-auto flex items-center gap-2">{extraControls}</div>
             {onSay ? (
+              <div className="pointer-events-auto flex w-[min(640px,100%)] flex-col items-stretch gap-1.5">
+              {hearing && (
+                <div className="ui-card self-end max-w-full truncate px-3 py-1.5 text-[14px] italic text-neutral-600" aria-live="polite">
+                  {hearing}
+                </div>
+              )}
               <form
-                className="ui-card pointer-events-auto flex w-[min(640px,100%)] items-center gap-2 p-1.5 pl-3"
+                className="ui-card flex w-full items-center gap-2 p-1.5 pl-3"
                 onSubmit={(e) => {
                   e.preventDefault();
                   submit(draft);
@@ -174,7 +189,7 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
                 <span className={busy ? "ui-pulse" : "h-2 w-2 rounded-full bg-neutral-300"} aria-hidden />
                 <input
                   className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-neutral-400"
-                  placeholder={busy ? "Type to interrupt..." : "Your answer, or a question"}
+                  placeholder={paused ? "Paused. Type to ask something, or press play" : busy ? "Type to interrupt..." : "Your answer, or a question"}
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   aria-label="Message the tutor"
@@ -184,10 +199,12 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
                     ◼
                   </button>
                 )}
+                {inputControls}
                 <button type="submit" className="ui-btn primary" aria-label="Send">
                   ↑
                 </button>
               </form>
+              </div>
             ) : (
               <span />
             )}

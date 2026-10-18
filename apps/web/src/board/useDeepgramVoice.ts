@@ -25,6 +25,9 @@ interface Playing {
   streamed: boolean;
   onEnd?: () => void;
   finished: boolean;
+  /** Audio clock time at which the last scheduled sample ends, once streamed. */
+  endAt: number;
+  finishTimer: number | null;
 }
 
 export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, { provider: "deepgram" }> | null): VoiceApi {
@@ -41,6 +44,10 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
   const [speaking, setSpeaking] = useState(false);
   const [caption, setCaption] = useState<VoiceApi["caption"]>(null);
   const [rate, setRate] = useState(1);
+  const [level, setLevel] = useState(0);
+  const [heard, setHeard] = useState("");
+  const [paused, setPaused] = useState(false);
+  const pausedRef = useRef(false);
 
   const ctx = useRef<AudioContext | null>(null);
   const queue = useRef<{ text: string; onEnd?: () => void }[]>([]);
@@ -109,6 +116,8 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
       streamed: false,
       onEnd: item.onEnd,
       finished: false,
+      endAt: 0,
+      finishTimer: null,
     };
     playing.current = p;
     speakingRef.current = true;
@@ -157,9 +166,9 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
           p.sources.push(src);
         }
         p.streamed = true;
-        // Done once the last scheduled sample has played.
-        const wait = Math.max(0, (at - ac.currentTime) * 1000) + 40;
-        window.setTimeout(() => finish(p), wait);
+        p.endAt = at;
+        // Done once the last scheduled sample has played (re-armed on resume if paused).
+        if (!pausedRef.current) p.finishTimer = window.setTimeout(() => finish(p), Math.max(0, (at - ac.currentTime) * 1000) + 40);
       } catch (err) {
         if (!p.abort.signal.aborted) console.warn("[voice] tts failed:", err);
         finish(p);
@@ -201,6 +210,27 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
   );
   const estimate = useCallback((text: string) => estimateSpeechMs(text, 1), []);
 
+  // Pausing suspends the audio clock, so scheduled samples hold in place and the
+  // caption stops; resuming lets them run on and re-arms the end-of-line timer.
+  const pause = useCallback(() => {
+    pausedRef.current = true;
+    setPaused(true);
+    const p = playing.current;
+    if (p?.finishTimer) {
+      window.clearTimeout(p.finishTimer);
+      p.finishTimer = null;
+    }
+    void ctx.current?.suspend();
+  }, []);
+  const resume = useCallback(() => {
+    pausedRef.current = false;
+    setPaused(false);
+    const ac = ctx.current;
+    void ac?.resume();
+    const p = playing.current;
+    if (p && p.streamed && !p.finished && ac) p.finishTimer = window.setTimeout(() => finish(p), Math.max(0, (p.endAt - ac.currentTime) * 1000) + 40);
+  }, [finish]);
+
   const setMutedOn = useCallback(
     (on: boolean) => {
       mutedRef.current = on;
@@ -214,7 +244,12 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
   );
 
   // ---- Microphone to Nova, through the tutor server.
-  const rec = useRef<{ recorder: MediaRecorder; stream: MediaStream; ws: WebSocket } | null>(null);
+  const rec = useRef<{ recorder: MediaRecorder; stream: MediaStream; ws: WebSocket; meter: { ctx: AudioContext; timer: number } | null } | null>(null);
+  const stopMeter = (m: { ctx: AudioContext; timer: number } | null) => {
+    if (!m) return;
+    window.clearInterval(m.timer);
+    void m.ctx.close();
+  };
   const wantListening = useRef(false);
   const startRec = useCallback(async () => {
     const mime = pickRecorderMime();
@@ -233,25 +268,49 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
     }
     const ws = new WebSocket(`${STT_URL}?language=${encodeURIComponent(optsRef.current.lang ?? "en")}`);
     const recorder = new MediaRecorder(stream, { mimeType: mime });
-    let heard: string[] = [];
+    // A small level meter on the mic, so the student can see they are being heard.
+    let meter: { ctx: AudioContext; timer: number } | null = null;
+    try {
+      const mctx = new AudioContext();
+      const analyser = mctx.createAnalyser();
+      analyser.fftSize = 512;
+      mctx.createMediaStreamSource(stream).connect(analyser);
+      const buf = new Float32Array(analyser.fftSize);
+      const timer = window.setInterval(() => {
+        analyser.getFloatTimeDomainData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+        const rms = Math.sqrt(sum / buf.length);
+        setLevel(Math.min(1, rms * 6));
+      }, 80);
+      meter = { ctx: mctx, timer };
+    } catch {
+      meter = null;
+    }
+    let heardLines: string[] = [];
     let bargedIn = false;
     const emit = () => {
-      const text = heard.join(" ").trim();
-      heard = [];
+      const text = heardLines.join(" ").trim();
+      heardLines = [];
       bargedIn = false;
+      setHeard("");
       if (text) optsRef.current.onUserSpeech(text);
     };
     ws.onmessage = (ev) => {
       const t = readTranscript(String(ev.data));
       if (t.kind === "final") {
-        if (t.text) heard.push(t.text);
+        if (t.text) heardLines.push(t.text);
+        setHeard([...heardLines].join(" "));
         if (t.endOfSpeech) emit();
       } else if (t.kind === "utterance_end") emit();
-      else if (t.kind === "interim" && !bargedIn && speakingRef.current && t.text.split(/\s+/).length >= 3) {
-        // The student is talking over the tutor: a few real words, so speaker echo does not trip it.
-        bargedIn = true;
-        stop();
-        optsRef.current.onBargeIn();
+      else if (t.kind === "interim") {
+        setHeard([...heardLines, t.text].join(" ").trim());
+        if (!bargedIn && speakingRef.current && t.text.split(/\s+/).length >= 3) {
+          // The student is talking over the tutor: a few real words, so speaker echo does not trip it.
+          bargedIn = true;
+          stop();
+          optsRef.current.onBargeIn();
+        }
       }
     };
     ws.onclose = () => {
@@ -262,6 +321,8 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
           /* already stopped */
         }
         for (const tr of stream.getTracks()) tr.stop();
+        stopMeter(meter);
+        setLevel(0);
         rec.current = null;
         // Keep listening across a dropped socket.
         if (wantListening.current) window.setTimeout(() => void startRec(), 1000);
@@ -271,7 +332,7 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
       if (e.data.size && ws.readyState === WebSocket.OPEN) ws.send(e.data);
     };
     ws.onopen = () => recorder.start(250);
-    rec.current = { recorder, stream, ws };
+    rec.current = { recorder, stream, ws, meter };
   }, [stop]);
 
   const setListeningOn = useCallback(
@@ -289,8 +350,11 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
             /* already stopped */
           }
           for (const t of r.stream.getTracks()) t.stop();
+          stopMeter(r.meter);
           r.ws.close();
         }
+        setLevel(0);
+        setHeard("");
       }
     },
     [startRec],
@@ -327,5 +391,5 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
     [],
   );
 
-  return { provider: "deepgram", supported, muted, setMuted: setMutedOn, listening, setListening: setListeningOn, speaking, caption, rate, setRate, speak, estimate, stop };
+  return { provider: "deepgram", supported, muted, setMuted: setMutedOn, listening, setListening: setListeningOn, speaking, caption, rate, setRate, speak, estimate, stop, level, heard, paused, pause, resume };
 }

@@ -22,6 +22,14 @@ export interface VoiceApi {
   estimate: (text: string) => number;
   /** Stop now and drop what is queued. */
   stop: () => void;
+  /** Microphone input level, 0 to 1, while listening (0 when the voice cannot measure it). */
+  level: number;
+  /** What the recogniser is hearing right now, before the line is final. */
+  heard: string;
+  /** Hold the voice where it is, and carry on from there. */
+  paused: boolean;
+  pause: () => void;
+  resume: () => void;
 }
 
 export interface VoiceOptions {

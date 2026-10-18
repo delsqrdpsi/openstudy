@@ -23,6 +23,28 @@ export function LiveView() {
   const started = useRef(false);
   const [showVoiceMenu, setShowVoiceMenu] = useState(false);
 
+  // Pause holds the voice and the board together; play carries on from the same word.
+  const { pause: pauseVoice, resume: resumeVoice, paused } = voice;
+  const togglePause = useCallback(() => {
+    if (paused) {
+      resumeVoice();
+      liveRef.current?.resume();
+    } else {
+      pauseVoice();
+      liveRef.current?.pause();
+    }
+  }, [paused, pauseVoice, resumeVoice]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.code !== "Space" || !e.shiftKey || t?.closest("input, textarea, select")) return;
+      e.preventDefault();
+      togglePause();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [togglePause]);
+
   // When the tutor is cut off by typing, stop its voice too.
   const stopVoice = voice.stop;
   const interrupt = useCallback(() => {
@@ -31,10 +53,15 @@ export function LiveView() {
   }, [stopVoice, live]);
   const say = useCallback(
     (text: string) => {
+      // Speaking or typing while paused un-pauses: the student has moved on.
+      if (paused) {
+        resumeVoice();
+        live.resume();
+      }
       if (live.turn === "thinking" || live.turn === "speaking") stopVoice();
       live.say(text);
     },
-    [live, stopVoice],
+    [live, stopVoice, paused, resumeVoice],
   );
 
   useEffect(() => {
@@ -89,17 +116,39 @@ export function LiveView() {
       onInterrupt={interrupt}
       caption={voice.caption}
       boardId={live.info?.id ?? null}
+      paused={paused}
+      hearing={voice.listening && voice.heard ? voice.heard : null}
+      inputControls={
+        <button
+          type="button"
+          className={`ui-btn relative${voice.listening ? " is-on" : ""}`}
+          onClick={() => voice.setListening(!voice.listening)}
+          disabled={!voice.supported.stt}
+          title={voice.supported.stt ? (voice.listening ? "Listening. Click to mute the mic." : "Turn the mic on to talk to the tutor") : voice.provider === "deepgram" ? "This browser cannot record audio" : "Speech recognition needs Chrome or Edge, or a Deepgram key"}
+          aria-label={voice.listening ? "Mute microphone" : "Unmute microphone"}
+          aria-pressed={voice.listening}
+        >
+          {voice.listening && (
+            // A ring that swells with your voice, so you can see you are being heard.
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0 rounded-[9px] border-2 border-[var(--teal)]"
+              style={{ opacity: 0.25 + voice.level * 0.75, transform: `scale(${1 + voice.level * 0.35})`, transition: "transform 80ms linear, opacity 80ms linear" }}
+            />
+          )}
+          <MicIcon off={!voice.listening} />
+        </button>
+      }
       extraControls={
         <>
           <div className="ui-card relative flex items-center gap-0.5 p-1">
             <button
-              className={`ui-btn${voice.listening ? " is-on" : ""}`}
-              onClick={() => voice.setListening(!voice.listening)}
-              disabled={!voice.supported.stt}
-              title={voice.supported.stt ? (voice.listening ? "Mic is on. Click to mute." : "Turn the mic on to talk to the tutor") : voice.provider === "deepgram" ? "This browser cannot record audio" : "Speech recognition needs Chrome or Edge, or a Deepgram key"}
-              aria-label={voice.listening ? "Mute microphone" : "Unmute microphone"}
+              className={`ui-btn${paused ? " is-on" : ""}`}
+              onClick={togglePause}
+              title={paused ? "Play the lesson (Shift+Space)" : "Pause the lesson (Shift+Space)"}
+              aria-label={paused ? "Play lesson" : "Pause lesson"}
             >
-              <MicIcon off={!voice.listening} />
+              {paused ? <PlayIcon /> : <PauseIcon />}
             </button>
             <button
               className={`ui-btn${voice.muted ? "" : " is-on"}`}
@@ -145,6 +194,23 @@ export function LiveView() {
         </>
       }
     />
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <rect x="6" y="5" width="4" height="14" rx="1" />
+      <rect x="14" y="5" width="4" height="14" rx="1" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M7 5v14l12-7z" />
+    </svg>
   );
 }
 

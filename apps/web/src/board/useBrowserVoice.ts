@@ -40,6 +40,8 @@ export function useBrowserVoice(opts: VoiceOptions): VoiceApi {
   const [speaking, setSpeaking] = useState(false);
   const [caption, setCaption] = useState<VoiceApi["caption"]>(null);
   const [rate, setRate] = useState(1.05);
+  const [heard, setHeard] = useState("");
+  const [paused, setPaused] = useState(false);
 
   const queue = useRef<{ text: string; onEnd?: () => void }[]>([]);
   const current = useRef<SpeechSynthesisUtterance | null>(null);
@@ -182,9 +184,11 @@ export function useBrowserVoice(opts: VoiceOptions): VoiceApi {
         if (res.isFinal) {
           bargedIn = false;
           const clean = t.trim();
+          setHeard("");
           if (clean) optsRef.current.onUserSpeech(clean);
         } else interim += t;
       }
+      setHeard(interim.trim());
       // Barge-in: a few real words while the tutor talks. Short fragments are
       // ignored so the speaker echo does not trip it.
       if (!bargedIn && speakingRef.current && interim.trim().split(/\s+/).length >= 3) {
@@ -238,5 +242,14 @@ export function useBrowserVoice(opts: VoiceOptions): VoiceApi {
     [],
   );
 
-  return { provider: "browser", supported, muted, setMuted: setMutedOn, listening, setListening: setListeningOn, speaking, caption, rate, setRate, speak, estimate, stop };
+  const pause = useCallback(() => {
+    setPaused(true);
+    window.speechSynthesis?.pause();
+  }, []);
+  const resume = useCallback(() => {
+    setPaused(false);
+    window.speechSynthesis?.resume();
+  }, []);
+
+  return { provider: "browser", supported, muted, setMuted: setMutedOn, listening, setListening: setListeningOn, speaking, caption, rate, setRate, speak, estimate, stop, level: 0, heard, paused, pause, resume };
 }

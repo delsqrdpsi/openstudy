@@ -85,6 +85,24 @@ describe("Pacer", () => {
   });
 });
 
+describe("Pacer pause", () => {
+  it("holds lines and turn changes while paused, and carries on after resume", () => {
+    const { pacer, applied, spoken, ev } = setup();
+    pacer.push(ev({ type: "say", text: "One." }));
+    pacer.pause();
+    spoken[0].done();
+    pacer.push(ev({ type: "say", text: "Two." }));
+    pacer.push({ kind: "turn", state: "waiting" });
+    expect(spoken).toHaveLength(1);
+    expect(applied.some((i) => i.kind === "turn")).toBe(false);
+    pacer.resume();
+    expect(spoken.map((x) => x.text)).toEqual(["One.", "Two."]);
+    spoken[1].done();
+    expect(applied.some((i) => i.kind === "turn")).toBe(true);
+    pacer.dispose();
+  });
+});
+
 describe("helpers", () => {
   it("counts only visible characters", () => {
     expect(visibleChars("<b>hi</b> there")).toBe(8);

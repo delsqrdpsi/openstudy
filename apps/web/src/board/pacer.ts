@@ -40,6 +40,7 @@ interface Speaking {
 export class Pacer {
   private queue: PacedItem[] = [];
   private speaking: Speaking | null = null;
+  private paused = false;
   private budget = IDLE_BUDGET;
   private lastTick: number;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -59,8 +60,27 @@ export class Pacer {
     this.drain();
   }
 
+  /** Hold everything where it is: nothing more lands. The voice is held by its owner. */
+  pause() {
+    this.paused = true;
+    this.stopTimer();
+  }
+
+  /** Carry on from where the pause left it. */
+  resume() {
+    if (!this.paused) return;
+    this.paused = false;
+    this.lastTick = this.now();
+    this.drain();
+  }
+
+  get isPaused(): boolean {
+    return this.paused;
+  }
+
   /** Drop everything pending and stop the voice. For interruptions: what was not heard is not shown. */
   discard(): number {
+    this.paused = false;
     this.endSpeech();
     const dropped = this.queue.length;
     this.queue = [];
@@ -71,6 +91,7 @@ export class Pacer {
 
   /** Everything pending lands now, silently. For reopened boards and new turns. */
   flush() {
+    this.paused = false;
     this.endSpeech();
     const items = this.queue;
     this.queue = [];
@@ -116,6 +137,7 @@ export class Pacer {
   }
 
   private drain() {
+    if (this.paused) return;
     while (this.queue.length) {
       const item = this.queue[0];
       if (item.kind === "turn") {
@@ -161,8 +183,11 @@ export class Pacer {
       this.drain();
     };
     s.cancel = this.hooks.speak(text, done);
-    // A synthesiser that never reports back must not freeze the lesson.
-    s.guard = setTimeout(done, estMs * 2.5 + 3000);
+    // A synthesiser that never reports back must not freeze the lesson (while paused, it waits).
+    const arm = () => {
+      s.guard = setTimeout(() => (this.paused ? arm() : done()), estMs * 2.5 + 3000);
+    };
+    arm();
   }
 
   private endSpeech() {

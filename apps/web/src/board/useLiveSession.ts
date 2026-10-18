@@ -205,5 +205,9 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
     send({ type: "interrupt", heard: heard.current });
   }, [send]);
 
-  return { state, turn, options, transcript, connected, error, info, writingId, usage, start, say, interrupt, setModel };
+  /** Hold the board where it is; the caller pauses the voice. */
+  const pause = useCallback(() => getPacer().pause(), [getPacer]);
+  const resume = useCallback(() => getPacer().resume(), [getPacer]);
+
+  return { state, turn, options, transcript, connected, error, info, writingId, usage, start, say, interrupt, setModel, pause, resume };
 }
