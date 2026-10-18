@@ -7,6 +7,7 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import JSZip from "jszip";
 import type { SourceSummary, TextBox } from "@openstudy/shared";
 import { log } from "../log";
+import { ocrPage } from "./ocr";
 
 /**
  * The student's own material: a folder of slides, PDFs, photos and notes.
@@ -121,6 +122,7 @@ async function preparePdf(id: string, name: string, path: string, dir: string, k
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const doc = await pdfjs.getDocument({ data: new Uint8Array(readFileSync(path)), useSystemFonts: true }).promise;
   const pages: SourcePage[] = [];
+  let ocrPages = 0;
   const total = Math.min(doc.numPages, MAX_PAGES);
   for (let n = 1; n <= total; n++) {
     const page = await doc.getPage(n);
@@ -150,8 +152,21 @@ async function preparePdf(id: string, name: string, path: string, dir: string, k
       boxes.push({ text: item.str, x: x / viewport.width, y: top / viewport.height, w: w / viewport.width, h: (fontH * 1.1) / viewport.height });
       lines.push(item.str + (item.hasEOL ? "\n" : " "));
     }
-    pages.push({ n, file, aspect: viewport.width / viewport.height, boxes, text: lines.join("").replace(/[ \t]+\n/g, "\n").trim() });
+    let pageText = lines.join("").replace(/[ \t]+\n/g, "\n").trim();
+    if (!boxes.length) {
+      // A scanned page: read it with OCR so words can still be marked.
+      try {
+        const o = await ocrPage(join(dir, file), canvas.width, canvas.height);
+        boxes.push(...o.boxes);
+        pageText = o.text;
+        ocrPages += 1;
+      } catch (e) {
+        log.warn("ocr failed on page", n, e instanceof Error ? e.message : e);
+      }
+    }
+    pages.push({ n, file, aspect: viewport.width / viewport.height, boxes, text: pageText });
   }
+  if (ocrPages) note = [note, `${ocrPages} page${ocrPages > 1 ? "s" : ""} read by OCR`].filter(Boolean).join("; ");
   const text = pages.map((p) => `--- page ${p.n} ---\n${p.text}`).join("\n\n");
   return { id, name, kind, pages: pages.length, chars: text.length, note: doc.numPages > MAX_PAGES ? `first ${MAX_PAGES} of ${doc.numPages} pages` : note, path, pages_: pages, text };
 }
@@ -208,17 +223,18 @@ async function prepareImage(id: string, name: string, path: string, dir: string)
   const ext = extname(path).toLowerCase() === ".png" ? "png" : "jpg";
   const file = `page-1.${ext}`;
   copyFileSync(path, join(dir, file));
-  return {
-    id,
-    name,
-    kind: "image",
-    pages: 1,
-    chars: 0,
-    note: "no text layer: the tutor can only mark regions of this picture, not words",
-    path,
-    pages_: [{ n: 1, file, aspect: img.width / img.height, boxes: [], text: "" }],
-    text: "",
-  };
+  let boxes: TextBox[] = [];
+  let text = "";
+  let note: string | undefined;
+  try {
+    ({ boxes, text } = await ocrPage(join(dir, file), img.width, img.height));
+    if (!boxes.length) note = "no readable text found: the tutor can only mark regions of this picture";
+    else note = "text read by OCR";
+  } catch (e) {
+    log.warn("ocr failed:", e instanceof Error ? e.message : e);
+    note = "OCR failed: the tutor can only mark regions of this picture";
+  }
+  return { id, name, kind: "image", pages: 1, chars: text.length, note, path, pages_: [{ n: 1, file, aspect: img.width / img.height, boxes, text }], text };
 }
 
 /** Material text for the planner. */
