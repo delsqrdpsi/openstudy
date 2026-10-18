@@ -28,7 +28,7 @@ interface Props {
 export const Board = forwardRef<BoardHandle, Props>(function Board({ state, writingId, follow, onScaleChange }, ref) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
-  const { camera, panning, setScaleCentered, fitRect, revealRect, userMovedRecently } = useViewport(viewportRef);
+  const { camera, panning, setScaleCentered, fitRect, focusRect, userMovedRecently } = useViewport(viewportRef);
   const scaleRef = useRef(camera.scale);
   useLayoutEffect(() => {
     scaleRef.current = camera.scale;
@@ -106,20 +106,46 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ state, writ
 
   const layout = useMemo(() => layoutColumns(content, heights, DEFAULT_LAYOUT), [content, heights]);
 
-  // Follow the tutor: reveal the focused block unless the user just moved.
+  // Follow the tutor: frame the block it is writing or pointing at, unless the student just moved the camera.
   const lastFocus = useRef<string | null>(null);
   const lastFocusHeight = useRef(0);
+  const pendingFocus = useRef(false);
+  // A new mark (highlight, circle, underline) on the focused block counts as pointing at it again.
+  const focusKey = state.focusId ? `${state.focusId}:${annotationsByTarget.get(state.focusId)?.length ?? 0}` : null;
   useLayoutEffect(() => {
-    if (!follow || !state.focusId) return;
+    if (!follow || !state.focusId || !focusKey) return;
     const p = layout.placements.get(state.focusId);
     if (!p) return;
-    const grew = state.focusId === lastFocus.current && p.height > lastFocusHeight.current + 8;
-    if (state.focusId !== lastFocus.current || grew) {
-      lastFocus.current = state.focusId;
-      lastFocusHeight.current = p.height;
-      if (!userMovedRecently()) revealRect(p.x, p.y, p.width, p.height);
+    const changed = focusKey !== lastFocus.current;
+    const grew = !changed && p.height > lastFocusHeight.current + 8;
+    if (!changed && !grew && !pendingFocus.current) return;
+    lastFocus.current = focusKey;
+    lastFocusHeight.current = p.height;
+    if (userMovedRecently()) {
+      // Come back to it once the student lets go of the camera.
+      pendingFocus.current = true;
+      return;
     }
-  }, [follow, state.focusId, layout, revealRect, userMovedRecently]);
+    pendingFocus.current = false;
+    // Wide blocks (tables, models) are measured; columns are not wider than their blocks.
+    const el = targets.get(state.focusId);
+    const width = el ? Math.max(p.width, el.offsetWidth) : p.width;
+    focusRect(p.x, p.y, width, p.height, writingId === state.focusId);
+  }, [follow, state.focusId, focusKey, layout, focusRect, userMovedRecently, writingId, targets]);
+
+  // A focus that arrived while the student held the camera is honoured once they let go.
+  useEffect(() => {
+    if (!follow) return;
+    const t = window.setInterval(() => {
+      if (!pendingFocus.current || userMovedRecently() || !state.focusId) return;
+      const p = layout.placements.get(state.focusId);
+      if (!p) return;
+      pendingFocus.current = false;
+      const el = targets.get(state.focusId);
+      focusRect(p.x, p.y, el ? Math.max(p.width, el.offsetWidth) : p.width, p.height, writingId === state.focusId);
+    }, 1000);
+    return () => window.clearInterval(t);
+  }, [follow, state.focusId, layout, focusRect, userMovedRecently, writingId, targets]);
 
   useEffect(() => onScaleChange?.(camera.scale), [camera.scale, onScaleChange]);
 
