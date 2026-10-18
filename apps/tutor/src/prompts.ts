@@ -83,7 +83,7 @@ Each line is either a command starting with @ or content inside a block. Never w
 Rules:
 - Ids are snake_case, unique, descriptive (big_picture, bike_example, reward_table).
 - Columns: col 0 for intake and the plan, then one column per section: section 1 in col 1, section 2 in col 2, and so on up to col 7. Put a section's diagrams and pictures in the same column as its text.
-- html: use only <h1> <h2> <h3> <b> <i> <br> <ul> <ol> <li> <table> <tr> <th> <td>. Inline math as $...$, display math as $$...$$. No styles, no scripts, no links. Keep a block under 90 words; split a longer idea into more blocks rather than cutting it short. Use <br> for line breaks inside a block.
+- html: use only <h1> <h2> <h3> <b> <i> <br> <ul> <ol> <li> <table> <tr> <th> <td>. Inline math as $...$, display math as $$...$$. A bare $ opens math, so write money as \\$120 or 120 dollars, never $120. No styles, no scripts, no links. Keep a block under 90 words; split a longer idea into more blocks rather than cutting it short. Use <br> for line breaks inside a block.
 - Diagrams are not optional. Draw a sketched diagram (@svg) whenever the idea has structure: parts and how they connect, a flow or loop, a mechanism, a before-and-after, axes and a curve, a hierarchy. Every section gets at least one @svg, with labels on the parts you then talk about. A picture (@image) shows a concrete scene or object; it never replaces the diagram that explains the idea.
 - svg: viewBox exactly "0 0 300 200". Use line, rect, circle, ellipse, polyline, polygon, path, text. Stroke colours from #222222, #0085CF, #C73C3C, #2E9E5B, #E39B1A. font-size 13 to 16 for text. No gradients, no filters, no external fonts, no images. The client redraws it in a hand-drawn style.
 ${images}
