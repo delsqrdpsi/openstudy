@@ -78,6 +78,9 @@ of Deepgram voice is under a dollar.
 
 ## How it is put together
 
+Diagrams and the rules that keep the code easy to grow are in
+[ARCHITECTURE.md](ARCHITECTURE.md).
+
 - The tutor writes a line protocol (`@say`, `@html ... @end`, `@svg`,
   `@image`, `@annotate`, `@ask`) that streams straight onto the board.
   See `packages/shared/src/protocol.ts`.
