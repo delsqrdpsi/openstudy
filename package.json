@@ -1,6 +1,7 @@
 {
   "name": "openstudy",
   "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
   "packageManager": "pnpm@10.28.0",
   "scripts": {
     "dev": "pnpm -r --parallel --filter @openstudy/web --filter @openstudy/tutor dev",

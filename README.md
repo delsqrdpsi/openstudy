@@ -127,3 +127,15 @@ apps/web          Next.js app: the board, the lesson UI, voice
 apps/tutor        Tutor server: websocket, sessions, brain and image adapters, planner
 packages/shared   Block schema, lesson events, protocol parser, board reducer, layout, fixtures
 ```
+
+## License
+
+OpenStudy is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE.md):
+you may use, change and share it for any noncommercial purpose, such as
+personal study, research, hobby projects, teaching, and use by charities,
+schools and public institutions. Commercial use, including selling it or
+offering it as a paid product or service, is not permitted. For a commercial
+license, contact [@delsqrdpsi](https://github.com/delsqrdpsi).
+
+Some figures under `figures/` come from the Anatomy project and stay under
+the MIT License; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
