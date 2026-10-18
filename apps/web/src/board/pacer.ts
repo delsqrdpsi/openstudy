@@ -28,6 +28,12 @@ export const CATCHUP_RATE = 120;
 /** Characters the pen may hold ready while idle, so a new line starts at once. */
 const IDLE_BUDGET = 12;
 export const TICK_MS = 50;
+/**
+ * The tutor puts a picture up and then talks about it ("See the skater?").
+ * While a picture is still being drawn, the next spoken line waits for it,
+ * up to this long, so the words never refer to an empty frame.
+ */
+export const IMAGE_WAIT_MS = 15000;
 
 interface Speaking {
   ended: boolean;
@@ -41,6 +47,8 @@ export class Pacer {
   private queue: PacedItem[] = [];
   private speaking: Speaking | null = null;
   private paused = false;
+  /** Pictures placed on the board but not drawn yet, with the time the voice stops waiting for each. */
+  private drawing = new Map<string, number>();
   private budget = IDLE_BUDGET;
   private lastTick: number;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -56,8 +64,32 @@ export class Pacer {
   }
 
   push(item: PacedItem) {
+    // A finished picture does not wait its turn: it fills a frame already on the
+    // board, and the speech queued behind it may be waiting for exactly this.
+    if (item.kind === "event" && item.event.type === "image.update") {
+      const up = item.event;
+      this.drawing.delete(up.id);
+      // Still queued (a pregenerated picture is ready before its frame lands): fold
+      // the result into the queued frame so it lands drawn. Otherwise fill it now.
+      const i = this.queue.findIndex((q) => q.kind === "event" && q.event.type === "block.add" && q.event.block.id === up.id);
+      const queued = i === -1 ? null : this.queue[i];
+      if (queued && queued.kind === "event" && queued.event.type === "block.add" && queued.event.block.type === "image") {
+        const block = queued.event.block;
+        this.queue[i] = { kind: "event", event: { ...queued.event, block: { ...block, status: up.status, url: up.url ?? block.url } } };
+      } else this.hooks.apply(item);
+      this.drain();
+      return;
+    }
     this.queue.push(item);
     this.drain();
+  }
+
+  /** A picture is on the board but still being drawn, and the voice has not given up on it. */
+  private waitingForPicture(): boolean {
+    if (!this.drawing.size) return false;
+    const t = this.now();
+    for (const [id, until] of this.drawing) if (until <= t) this.drawing.delete(id);
+    return this.drawing.size > 0;
   }
 
   /** Hold everything where it is: nothing more lands. The voice is held by its owner. */
@@ -81,6 +113,7 @@ export class Pacer {
   /** Drop everything pending and stop the voice. For interruptions: what was not heard is not shown. */
   discard(): number {
     this.paused = false;
+    this.drawing.clear();
     this.endSpeech();
     const dropped = this.queue.length;
     this.queue = [];
@@ -92,6 +125,7 @@ export class Pacer {
   /** Everything pending lands now, silently. For reopened boards and new turns. */
   flush() {
     this.paused = false;
+    this.drawing.clear();
     this.endSpeech();
     const items = this.queue;
     this.queue = [];
@@ -149,6 +183,7 @@ export class Pacer {
       const e = item.event;
       if (e.type === "say") {
         if (this.speaking && !this.speaking.ended) break;
+        if (this.waitingForPicture()) break;
         this.queue.shift();
         this.hooks.apply(item);
         this.startSpeech(e.text);
@@ -164,6 +199,7 @@ export class Pacer {
       }
       this.queue.shift();
       this.hooks.apply(item);
+      if (e.type === "block.add" && e.block.type === "image" && e.block.status === "pending") this.drawing.set(e.block.id, this.now() + IMAGE_WAIT_MS);
     }
     if (this.queue.length) this.startTimer();
     else this.stopTimer();

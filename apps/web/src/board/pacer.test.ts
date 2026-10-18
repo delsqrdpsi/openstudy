@@ -103,6 +103,55 @@ describe("Pacer pause", () => {
   });
 });
 
+describe("Pacer pictures", () => {
+  const picture = (id: string) =>
+    ({ type: "block.add", block: { id, type: "image", column: 1, prompt: "a skater", status: "pending" } }) as never;
+
+  it("holds the next spoken line until a pending picture is drawn", () => {
+    const { pacer, spoken, ev } = setup();
+    pacer.push(ev(picture("skater")));
+    pacer.push(ev({ type: "say", text: "See the skater?" }));
+    expect(spoken).toHaveLength(0);
+    pacer.push(ev({ type: "image.update", id: "skater", status: "ready", url: "/x.png" }));
+    expect(spoken.map((x) => x.text)).toEqual(["See the skater?"]);
+    pacer.dispose();
+  });
+
+  it("stops waiting for a picture that takes too long", () => {
+    const { pacer, spoken, advance, ev } = setup();
+    pacer.push(ev(picture("slow")));
+    pacer.push(ev({ type: "say", text: "Look at this." }));
+    advance(14000);
+    expect(spoken).toHaveLength(0);
+    advance(1500);
+    expect(spoken).toHaveLength(1);
+    pacer.dispose();
+  });
+
+  it("lands a pregenerated picture drawn when it was ready before its frame left the queue", () => {
+    const { pacer, applied, spoken, ev } = setup();
+    pacer.push(ev({ type: "say", text: "First." }));
+    pacer.push(ev({ type: "say", text: "Second." })); // waits for the first line
+    pacer.push(ev(picture("pre"))); // queued behind it
+    pacer.push(ev({ type: "say", text: "See it?" }));
+    pacer.push(ev({ type: "image.update", id: "pre", status: "ready", url: "/p.png" })); // ready before its frame lands
+    spoken[0].done();
+    spoken[1].done();
+    const landed = applied.find((i) => i.kind === "event" && i.event.type === "block.add");
+    expect(landed && landed.kind === "event" && landed.event.type === "block.add" && landed.event.block.type === "image" && landed.event.block.status).toBe("ready");
+    expect(spoken.map((x) => x.text)).toEqual(["First.", "Second.", "See it?"]);
+    pacer.dispose();
+  });
+
+  it("speaks at once when the picture was already drawn", () => {
+    const { pacer, spoken, ev } = setup();
+    pacer.push(ev({ type: "block.add", block: { id: "done", type: "image", column: 1, prompt: "p", status: "ready", url: "/d.png" } } as never));
+    pacer.push(ev({ type: "say", text: "Here it is." }));
+    expect(spoken).toHaveLength(1);
+    pacer.dispose();
+  });
+});
+
 describe("helpers", () => {
   it("counts only visible characters", () => {
     expect(visibleChars("<b>hi</b> there")).toBe(8);
