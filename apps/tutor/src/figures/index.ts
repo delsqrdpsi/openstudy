@@ -43,12 +43,45 @@ export function getFigure(name: string, dir = FIGURES_DIR): FigureMeta | null {
 
 const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".mjs": "text/javascript", ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json" };
 
+/**
+ * Added to every figure page as it is served: the page tells the board how
+ * tall its content is, so the frame on the board can fit it instead of
+ * clipping. Figures are responsive pages whose height depends on the width
+ * they are given, so only the page itself knows.
+ */
+const SIZE_REPORTER = `<script>(function(){
+  if (window.parent === window) return;
+  var last = 0, sent = 0;
+  function measure(){
+    var d = document.documentElement, b = document.body;
+    var h = Math.max(d.scrollHeight, d.offsetHeight, b ? b.scrollHeight : 0, b ? b.offsetHeight : 0);
+    // Absolutely or fixed positioned content does not count toward scrollHeight: take the lowest element edge too.
+    var els = document.querySelectorAll("body *"), max = 0, y = window.scrollY || 0;
+    for (var i = 0; i < els.length; i++) { var r = els[i].getBoundingClientRect(); if (r.bottom > max) max = r.bottom; }
+    return Math.ceil(Math.max(h, max + y));
+  }
+  function report(){
+    var h = measure();
+    if (!h || (h === last && sent > 2)) return;
+    last = h; sent++;
+    window.parent.postMessage({ type: "openstudy:figure-size", height: h }, "*");
+  }
+  try { new ResizeObserver(report).observe(document.documentElement); if (document.body) new ResizeObserver(report).observe(document.body); } catch (e) {}
+  window.addEventListener("load", report);
+  [50, 300, 1000, 2500, 5000].forEach(function(ms){ setTimeout(report, ms); });
+})();</script>`;
+
 /** Serve a file from a figure folder. Returns null for anything outside it. */
 export function readFigureFile(name: string, file: string, dir = FIGURES_DIR): { bytes: Buffer; type: string } | null {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(name) || file.includes("..") || file.includes("\0")) return null;
   const p = join(dir, name, file || "index.html");
   if (!existsSync(p) || !statSync(p).isFile()) return null;
-  return { bytes: readFileSync(p), type: TYPES[extname(p)] ?? "application/octet-stream" };
+  const type = TYPES[extname(p)] ?? "application/octet-stream";
+  if (extname(p) !== ".html") return { bytes: readFileSync(p), type };
+  const html = readFileSync(p, "utf8");
+  const at = html.lastIndexOf("</body>");
+  const withReporter = at === -1 ? html + SIZE_REPORTER : html.slice(0, at) + SIZE_REPORTER + html.slice(at);
+  return { bytes: Buffer.from(withReporter, "utf8"), type };
 }
 
 /** Add a built page to the library. */

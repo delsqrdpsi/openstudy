@@ -44,7 +44,9 @@ const http = createServer((req, res) => {
   if (figMatch && req.method === "GET") {
     const file = readFigureFile(figMatch[1], decodeURIComponent(figMatch[2]));
     if (file) {
-      res.writeHead(200, { "content-type": file.type, "cache-control": "public, max-age=3600", ...CORS });
+      // Pages are re-read each time (the board's size reporter is added on the way out); assets can be cached.
+      const cache = file.type.startsWith("text/html") ? "no-cache" : "public, max-age=3600";
+      res.writeHead(200, { "content-type": file.type, "cache-control": cache, ...CORS });
       res.end(file.bytes);
       return;
     }

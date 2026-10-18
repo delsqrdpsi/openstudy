@@ -192,9 +192,11 @@ export class Session {
   }
 
   private async resolveImage(id: string, prompt: string) {
+    const t0 = Date.now();
     try {
       const ready = this.readyImages.get(id);
       const url = ready ? await ready : (await this.images!.generate({ id, prompt })).url;
+      log.info(`image ${id} ready in ${((Date.now() - t0) / 1000).toFixed(1)}s${ready ? " (pregenerated)" : ""}`);
       this.update({ type: "image.update", id, status: "ready", url });
     } catch (err) {
       log.warn("image failed", id, err instanceof Error ? err.message : err);
