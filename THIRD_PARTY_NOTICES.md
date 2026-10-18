@@ -36,4 +36,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## pdf.js (Apache License 2.0)
+
+https://github.com/mozilla/pdf.js
+
+- `apps/web/public/vendor/pdf.worker.min.mjs` is the pdf.js worker from the
+  `pdfjs-dist` package, copied so the browser can load it. Copyright Mozilla
+  Foundation and contributors, licensed under the Apache License, Version 2.0
+  (https://www.apache.org/licenses/LICENSE-2.0). It must match the
+  `pdfjs-dist` version pinned in `apps/web/package.json`.
+
 Third-party npm packages used by OpenStudy are under their own licenses, listed in each package under `node_modules`.

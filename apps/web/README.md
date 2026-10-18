@@ -1,36 +1,28 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# @openstudy/web
 
-## Getting Started
+The OpenStudy web app: the home page (topic, attachments, course folders,
+saved boards), the live lesson (board, voice, chat history, keypoints), the
+scripted demo, and the print view of a saved board.
 
-First, run the development server:
+Run it from the repository root with `pnpm dev`, which starts this app on
+http://localhost:3000 and the tutor server on :8787. On its own:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm --filter @openstudy/web dev        # next dev
+pnpm --filter @openstudy/web test       # unit tests (vitest)
+pnpm --filter @openstudy/web e2e        # browser tests (Playwright)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Where things are:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+src/app/            pages: home, live lesson, saved lesson, print
+src/board/          the board, layout, camera, pacing, voice, live session
+src/board/blocks/   one component per block type, plus annotations
+src/lib/            sanitizing html and svg, sketching diagrams, reading PDFs
+public/vendor/      the pdf.js worker (must match the pinned pdfjs-dist)
+e2e/                Playwright tests
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`NEXT_PUBLIC_TUTOR_HTTP` and `NEXT_PUBLIC_TUTOR_WS` point the app at a tutor
+server other than http://localhost:8787. See the root README for the rest.

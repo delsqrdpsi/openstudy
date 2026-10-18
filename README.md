@@ -34,7 +34,7 @@ The plan and the reasoning behind it are in [PLAN.md](PLAN.md).
 
 ## Run it
 
-You need Node 22, pnpm, and the `claude` CLI logged in to your Claude plan
+You need Node 22.13 or newer, pnpm, and the `claude` CLI logged in to your Claude plan
 (`claude` once in a terminal, then sign in). That is the only hard
 requirement: the tutor and the planner bill to that plan, not to an API key.
 
@@ -102,18 +102,29 @@ of Deepgram voice is under a dollar.
 - Interactive models come from `figures/` (see its README). Each is a
   self-contained page built with the Anatomy skill, shown in a sandboxed
   frame. The tutor places one with `@figure`, draws simple motion with
-  `@motion` (animated SVG, seconds), and can request a new model with
-  `@build_figure`, which runs the skill through the `claude` CLI in the
-  background and adds the result to the saved board when it finishes
-  (tens of minutes). Seed more examples with `pnpm figures:seed` after
+  `@motion` (animated SVG, seconds), and can offer to build a new model with
+  `@build_figure`. You see the exact request and approve it first, because
+  the build runs the skill through the `claude` CLI with tools on your
+  machine; the result lands on the saved board when it finishes (tens of
+  minutes). Seed more examples with `pnpm figures:seed` after
   `npx skills add wheresryan22/anatomy -g -a claude-code`.
+- Recovery: each lesson keeps its own `claude` session. If that session is
+  gone (deleted, expired, another machine), the tutor starts a fresh one and
+  hands it the saved board and transcript, so the lesson carries on. A dropped
+  connection reconnects by itself, and opening a board in a second tab hands
+  the lesson to that tab.
+- Safety: the tutor server listens on this machine only and answers only the
+  OpenStudy web app running here, so other websites you visit cannot drive a
+  lesson, read your folders or spend your keys. It reads course material only
+  under your home folder unless you set `SOURCES_ROOT`. See the network
+  section of `.env.example` to use a tablet on a trusted network.
 
 ## Checks
 
 ```bash
 pnpm typecheck
 pnpm lint
-pnpm test                         # unit tests (shared package)
+pnpm test                         # unit tests: parser, board, session, server guard, client logic
 pnpm --filter @openstudy/web e2e  # browser tests, needs Playwright's Chromium
 ```
 

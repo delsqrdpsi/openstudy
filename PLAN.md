@@ -219,7 +219,7 @@ Next.js, React, TypeScript, Tailwind. rough.js, KaTeX. Node tutor service
 on localhost. Claude Code headless for planning and tutoring. Gemini Flash
 Image for pictures. faster-whisper and Kokoro for voice. SQLite.
 
-### Build order (phases 0 to 4 done)
+### Build order (phases 0 to 6 done)
 
 0. Repo scaffold, lint, test, `pnpm dev` starts both web and tutor server.
 1. Block schema, board renderer (pan, zoom, columns, handwriting font,

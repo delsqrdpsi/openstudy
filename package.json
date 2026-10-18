@@ -13,5 +13,8 @@
     "typecheck": "pnpm -r typecheck",
     "figures:seed": "pnpm --filter @openstudy/tutor figures:seed",
     "figures:import": "pnpm --filter @openstudy/tutor figures:import"
+  },
+  "engines": {
+    "node": ">=22.13"
   }
 }
