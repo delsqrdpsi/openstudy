@@ -37,6 +37,8 @@ The plan and the reasoning behind it are in [PLAN.md](PLAN.md).
 You need Node 22, pnpm, and the `claude` CLI logged in to your Claude plan
 (`claude` once in a terminal, then sign in). That is the only hard
 requirement: the tutor and the planner bill to that plan, not to an API key.
+To run on a ChatGPT plan instead, install the Codex CLI
+(`npm i -g @openai/codex`), run `codex login`, and set `BRAIN=codex`.
 
 ```bash
 pnpm install
@@ -60,7 +62,8 @@ the tutor server, which holds the keys.
 
 | Key | What it unlocks | Needed? | Where to get it |
 | --- | --- | --- | --- |
-| Claude login (no key) | The tutor, the planner, "build me a model" jobs | Yes | `claude` CLI, sign in with your Claude account |
+| Claude login (no key) | The tutor, the planner, "build me a model" jobs | Yes, unless `BRAIN=codex` | `claude` CLI, sign in with your Claude account |
+| ChatGPT login (no key) | The tutor and the planner with `BRAIN=codex` | Alternative | `codex login` after `npm i -g @openai/codex`; Plus, Pro, Business or Enterprise plan |
 | `GEMINI_API_KEY` | Pictures on the board (Gemini 2.5 Flash Image, the default) | For pictures | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | `OPENAI_API_KEY` | Pictures with gpt-image-1 instead (`IMAGES=openai`) | Alternative | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
 | `FAL_KEY` | Pictures with Flux instead (`IMAGES=fal`) | Alternative | [fal.ai/dashboard/keys](https://fal.ai/dashboard/keys) |
@@ -88,6 +91,11 @@ of Deepgram voice is under a dollar.
 - The brain is the `claude` CLI in headless mode, one process per turn,
   resumed by session id. It bills to the Claude plan you are logged in with.
   The planner is a separate one-shot call on Fable with structured output.
+- With `BRAIN=codex` the brain is `codex app-server` instead: one process per
+  lesson, one Codex thread per board, streamed token by token, billed to the
+  ChatGPT plan. The model menu lists what Codex offers your plan. The usage
+  ring shows tokens and context but no dollar figure (Codex reports none).
+  "Build me a model" jobs still run through the `claude` CLI.
 - Voice: with `DEEPGRAM_API_KEY` set, the tutor speaks with Aura-2 and
   listens with Nova, streamed through the tutor server (`POST /tts`, `/stt`)
   so the key stays on your machine and audio starts within a few hundred

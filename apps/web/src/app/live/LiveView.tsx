@@ -5,6 +5,7 @@ import { useLiveSession, type Speaker } from "@/board/useLiveSession";
 import { useVoice } from "@/board/useVoice";
 import { LessonShell } from "@/board/LessonShell";
 import { UsageBadge } from "@/board/UsageBadge";
+import { useBrainModels } from "@/board/useBrainModels";
 
 /** A live lesson. The intake (topic and materials) arrives from the home page. */
 export function LiveView() {
@@ -17,6 +18,7 @@ export function LiveView() {
   const { speak, estimate } = voice;
   const speaker = useMemo<Speaker>(() => ({ speak, estimateMs: estimate }), [speak, estimate]);
   const live = useLiveSession({ speaker });
+  const { models } = useBrainModels();
   useEffect(() => {
     liveRef.current = live;
   }, [live]);
@@ -173,7 +175,7 @@ export function LiveView() {
           </div>
           {live.info && (
             <span className="ui-card flex items-center gap-1 py-1 pl-1 pr-1 text-[12px] text-neutral-500">
-              <UsageBadge usage={live.usage} contextWindow={live.info.model === "sonnet" ? 1_000_000 : 200_000} />
+              <UsageBadge usage={live.usage} contextWindow={live.usage?.tutor.contextWindow ?? (live.info.model === "sonnet" ? 1_000_000 : 200_000)} />
               {live.info.brain} ·
               <select
                 className="ui-btn h-7 bg-transparent px-1 text-[12px]"
@@ -182,9 +184,9 @@ export function LiveView() {
                 aria-label="Tutor model"
                 title="Switch the tutor's model; applies from the next turn"
               >
-                {Array.from(new Set(["sonnet", "opus", "fable", live.info.model])).map((m) => (
+                {Array.from(new Set([...models.map((m) => m.id), live.info.model])).map((m) => (
                   <option key={m} value={m}>
-                    {m}
+                    {m || "default"}
                   </option>
                 ))}
               </select>

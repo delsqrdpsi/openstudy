@@ -68,6 +68,8 @@ export const UsageSchema = z.object({
     cacheWriteTokens: z.number(),
     /** Tokens the model read on the latest turn: how full the context is. */
     contextTokens: z.number(),
+    /** The model's context window, when the brain reports it. */
+    contextWindow: z.number().optional(),
     costUsd: z.number(),
   }),
   planner: z.object({ calls: z.number(), costUsd: z.number() }),

@@ -19,7 +19,7 @@ import { figuresForPrompt, getFigure, listFigures } from "./figures";
 import { pageBlockFor, sourcesAsMaterials, sourcesForPrompt } from "./sources";
 import { startBuild } from "./figures/builder";
 import { log } from "./log";
-import { UsageMeter, setActiveMeter } from "./usage";
+import { UsageMeter, setActiveMeter, type TurnUsage } from "./usage";
 import { UsageSchema } from "@openstudy/shared";
 
 /** How long the first teaching turn waits for the planner before going without it. */
@@ -384,7 +384,7 @@ export class Session {
     parser.end();
     if (this.brain.session) this.store.setBrainSession(this.id, this.brain.session);
 
-    if (result.status !== "aborted" || this.spoken.length) this.meter.turn(result.meta as { cost_usd?: number; usage?: Record<string, number> } | undefined);
+    if (result.status !== "aborted" || this.spoken.length) this.meter.turn(result.meta as TurnUsage | undefined);
     if (result.meta) this.send({ type: "debug", text: `turn ${this.turns}: ${JSON.stringify(result.meta)}` });
 
     if (result.status === "aborted") {

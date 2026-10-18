@@ -34,6 +34,7 @@ export const emptyUsage = (subscription = true): Usage => ({
 
 export interface TurnUsage {
   cost_usd?: number;
+  context_window?: number;
   usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
 }
 
@@ -65,6 +66,7 @@ export class UsageMeter {
     t.cacheReadTokens += u.cache_read_input_tokens ?? 0;
     t.cacheWriteTokens += u.cache_creation_input_tokens ?? 0;
     t.contextTokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+    if (meta?.context_window) t.contextWindow = meta.context_window;
     t.costUsd = round(t.costUsd + (meta?.cost_usd ?? 0), 4);
     this.changed();
   }

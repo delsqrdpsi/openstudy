@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 import { ClientMessageSchema, type ServerMessage } from "@openstudy/shared";
-import { createBrain } from "./brain";
+import { brainKind, brainModels, createBrain } from "./brain";
 import { createImages, imageStore } from "./images";
 import { Session } from "./session";
 import { Store } from "./store";
@@ -33,7 +33,11 @@ const http = createServer((req, res) => {
     return;
   }
   if (url.pathname === "/health") {
-    return json(res, 200, { ok: true, brain: process.env.BRAIN ?? "claude-code", images: process.env.IMAGES ?? (process.env.GEMINI_API_KEY ? "gemini" : "none"), voice: voiceConfig().provider });
+    return json(res, 200, { ok: true, brain: brainKind(), images: process.env.IMAGES ?? (process.env.GEMINI_API_KEY ? "gemini" : "none"), voice: voiceConfig().provider });
+  }
+  if (url.pathname === "/models" && req.method === "GET") {
+    void brainModels().then((models) => json(res, 200, { brain: brainKind(), models }));
+    return;
   }
   if (url.pathname === "/voice" && req.method === "GET") return json(res, 200, voiceConfig());
   if (url.pathname === "/tts" && req.method === "POST") {

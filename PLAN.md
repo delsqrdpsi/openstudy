@@ -79,7 +79,7 @@ Browser (Next.js)
 Tutor server (Node, local)
   Session loop: transcript in -> brain -> {speech text, tool calls} out
   Tools: write_block, draw_svg, show_image, annotate, point_at, new_section
-  Brain adapter:   claude-code-headless (default) | api-key | ollama
+  Brain adapter:   claude-code-headless (default) | codex-app-server | api-key | ollama
   Planner:         Fable via Claude Code -> lesson plan JSON
   Image adapter:   gemini-flash-image (default) | gpt-image-1 | flux-schnell
   Voice adapters:  STT faster-whisper | deepgram.  TTS kokoro | elevenlabs
@@ -162,6 +162,10 @@ bills to your Claude plan and is you using Claude Code on your own machine.
 - Planning: Fable. One call, returns the lesson plan JSON below.
 - Live turns: pick per plan. Opus 5.5 for quality, Sonnet 5.5 if turns feel slow.
 - Rate limits: a 30-minute lesson is dozens of turns. Fine on Max, tight on Pro.
+- `codex` adapter drives `codex app-server` on a ChatGPT plan: one process
+  per lesson, base instructions in place of Codex's coding prompt, streamed
+  deltas, real interrupt. The planner uses an ephemeral thread with a strict
+  output schema. Figure builds stay on the `claude` CLI.
 - `api-key` adapter uses the Claude API directly for anyone who prefers it.
 - `ollama` adapter for a fully offline brain at lower quality.
 
@@ -244,7 +248,7 @@ Image for pictures. faster-whisper and Kokoro for voice. SQLite.
 
 | Piece | Key | Free path |
 |---|---|---|
-| Brain | None (Claude plan via Claude Code) | Yes |
+| Brain | None (Claude plan via Claude Code, or ChatGPT plan via Codex) | Yes |
 | Images | Gemini API key | Free tier |
 | Voice | None with local engines | Yes |
 | Storage | None | Yes |

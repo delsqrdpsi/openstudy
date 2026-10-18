@@ -5,17 +5,14 @@ import Link from "next/link";
 import { BoardSummarySchema, SourceSummarySchema, type BoardSummary, type SourceSummary } from "@openstudy/shared";
 import { TUTOR_HTTP } from "@/board/useLiveSession";
 import { readMaterial, type Material } from "@/lib/materials";
-
-const MODELS = [
-  { id: "sonnet", label: "Sonnet (fast)" },
-  { id: "opus", label: "Opus (deeper)" },
-  { id: "fable", label: "Fable (deepest, slow)" },
-];
+import { useBrainModels } from "@/board/useBrainModels";
 
 export default function Home() {
   const router = useRouter();
   const [topic, setTopic] = useState("");
-  const [model, setModel] = useState("sonnet");
+  const { models } = useBrainModels();
+  const [chosenModel, setChosenModel] = useState<string | null>(null);
+  const model = chosenModel ?? models.find((m) => m.default)?.id ?? models[0].id;
   const [materials, setMaterials] = useState<Material[]>([]);
   const [skipped, setSkipped] = useState<string[]>([]);
   const [boards, setBoards] = useState<BoardSummary[] | null>(null);
@@ -146,8 +143,8 @@ export default function Home() {
                 + Add files
                 <input type="file" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} accept=".pdf,.txt,.md,.markdown,.csv,.json,.py,.js,.ts,.html,application/pdf,text/*" />
               </label>
-              <select className="ui-btn bg-transparent" value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model">
-                {MODELS.map((m) => (
+              <select className="ui-btn bg-transparent" value={model} onChange={(e) => setChosenModel(e.target.value)} aria-label="Model">
+                {models.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.label}
                   </option>

@@ -45,6 +45,8 @@ export function startBuild(opts: { name: string; concept: string; onDone?: (job:
   let stderr = "";
   child.stderr.on("data", (d) => (stderr += d));
   child.stdout.on("data", () => {});
+  // No claude CLI (a Codex-only setup): close still follows, and fails the job with this.
+  child.on("error", (e) => (stderr += `\n${e.message}. Building models needs the claude CLI, logged in.`));
   const timer = setTimeout(() => child.kill("SIGTERM"), Number(process.env.FIGURE_TIMEOUT_MS ?? 90 * 60 * 1000));
   child.on("close", (code) => {
     clearTimeout(timer);

@@ -4,11 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LESSON_PLAN_JSON_SCHEMA, LessonPlanSchema, type LessonPlan } from "@openstudy/shared";
 import { log } from "./log";
+import { brainKind, sanitizeModel } from "./brain";
+import { CodexAppServer, TUTOR_THREAD_CONFIG } from "./brain/codexAppServer";
+import { runTurn } from "./brain/codex";
+import { nullsToUndefined, strictJsonSchema } from "./brain/strictSchema";
 
 /**
  * One slow, careful call that turns the intake into a lesson plan. Runs on a
  * stronger model than the live tutor (Fable by default) through the same
- * headless CLI, with structured output so the result always parses.
+ * headless CLI, with structured output so the result always parses. With
+ * BRAIN=codex it runs on Codex instead, at high reasoning effort.
  */
 export async function planLesson(input: {
   topic: string;
@@ -19,7 +24,8 @@ export async function planLesson(input: {
   model?: string;
   signal?: AbortSignal;
 }): Promise<{ plan: LessonPlan; costUsd: number }> {
-  const model = input.model ?? process.env.PLANNER_MODEL ?? "fable";
+  const codex = brainKind() === "codex";
+  const model = sanitizeModel(input.model ?? process.env.PLANNER_MODEL) ?? (codex ? "" : "fable");
   const system = `You are a master teacher planning a one-on-one whiteboard lesson. You will not teach it; a live tutor will, following your plan section by section. Be concrete and specific to this student. Prefer fewer, deeper sections (3 to 6). Each section: one clear goal, two to five key points in the order to teach them, one vivid example or analogy, one real check question that tests understanding (with 2 to 4 short options when it works as multiple choice), and the misconceptions to watch for.${
     input.imagesEnabled
       ? " For each section, suggest zero to two pictures a pencil-sketch model could draw: concrete, visual, under 30 words, with snake_case ids."
@@ -32,6 +38,7 @@ export async function planLesson(input: {
     : "";
   const intake = (input.intake ?? []).map((t) => `${t.role === "tutor" ? "Tutor" : "Student"}: ${t.text}`).join("\n");
   const user = `Topic the student typed: "${input.topic}"${mats}${intake ? `\n\nIntake conversation:\n${intake}` : ""}\n\nWrite the lesson plan.`;
+  if (codex) return planWithCodex(system, user, model, input.signal);
 
   const args = [
     "-p",
@@ -68,6 +75,36 @@ export async function planLesson(input: {
   const plan = LessonPlanSchema.parse(raw);
   log.info(`plan ready in ${((Date.now() - t0) / 1000).toFixed(1)}s on ${model}: ${plan.sections.length} sections, cost ${result.total_cost_usd}`);
   return { plan, costUsd: result.total_cost_usd ?? 0 };
+}
+
+/** Codex has no one-shot flag that streams nothing; an ephemeral thread with an output schema does the same job. */
+async function planWithCodex(system: string, user: string, model: string, signal?: AbortSignal): Promise<{ plan: LessonPlan; costUsd: number }> {
+  const cwd = mkdtempSync(join(tmpdir(), "openstudy-plan-"));
+  const server = new CodexAppServer({ cwd });
+  const t0 = Date.now();
+  try {
+    const t = await server.call<{ thread: { id: string } }>("thread/start", {
+      ...(model ? { model } : {}),
+      cwd,
+      sandbox: "read-only",
+      approvalPolicy: "never",
+      baseInstructions: system,
+      config: TUTOR_THREAD_CONFIG,
+      ephemeral: true,
+    });
+    const r = await runTurn(server, t.thread.id, user, {
+      model: model || undefined,
+      effort: process.env.PLANNER_EFFORT ?? "high",
+      outputSchema: strictJsonSchema(LESSON_PLAN_JSON_SCHEMA),
+      signal,
+    });
+    if (r.status !== "ok") throw new Error(r.message ?? `planner turn ${r.status}`);
+    const plan = LessonPlanSchema.parse(nullsToUndefined(tryJson(r.text)));
+    log.info(`plan ready in ${((Date.now() - t0) / 1000).toFixed(1)}s on codex ${model || "(default model)"}: ${plan.sections.length} sections`);
+    return { plan, costUsd: 0 };
+  } finally {
+    server.close();
+  }
 }
 
 function tryJson(s: string): unknown {
