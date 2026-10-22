@@ -70,10 +70,10 @@ describe("protocol", () => {
   });
 
   it("strips board markup from spoken lines", () => {
-    const { events } = parseProtocol("@say These are the <b>Actor</b> and the <i>Critic</i>.\nSo a < b <B>here</B>\n");
+    const { events } = parseProtocol("@say These are the <b>Actor</b> &amp; the <i>Critic</i>.\nwhen x<y the **loop**<br>stops\n@say <b></b>\n");
     expect(events).toEqual([
-      { type: "say", text: "These are the Actor and the Critic." },
-      { type: "say", text: "So a < b here" },
+      { type: "say", text: "These are the Actor & the Critic." },
+      { type: "say", text: "when x<y the loop stops" },
     ]);
   });
 

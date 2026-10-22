@@ -1,6 +1,7 @@
 import type { LessonEvent } from "./events";
 import type { Block } from "./blocks";
 import { BlockSchema } from "./blocks";
+import { plainSpeech } from "./text";
 
 /**
  * The board protocol: a line-based text format the tutor model writes, parsed
@@ -139,7 +140,7 @@ export class ProtocolParser {
 
   /** Spoken lines are plain words: the model sometimes carries board markup (<b>Actor</b>) into them. */
   private say(text: string) {
-    const plain = text.replace(/<\/?[a-z][^>]*>/gi, "").replace(/\s+/g, " ").trim();
+    const plain = plainSpeech(text);
     if (plain) this.sink.event({ type: "say", text: plain });
   }
 
