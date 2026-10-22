@@ -12,7 +12,7 @@ import {
 import { createBrain, type Brain, type TurnResult } from "./brain";
 import type { ImageBackend } from "./images";
 import type { Store } from "./store";
-import { LessonEventSchema, LessonPlanSchema } from "@openstudy/shared";
+import { LessonEventSchema, LessonPlanSchema, htmlToText, plainSpeech } from "@openstudy/shared";
 import { intakeMessage, tutorSystemPrompt } from "./prompts";
 import { planLesson, planForTutor } from "./planner";
 import { getFigure } from "./figures";
@@ -195,7 +195,7 @@ export class Session {
     if (opts.quiet || log.length === 0) return;
     // Greet the returning student and recap, the way a tutor would when you walk back in.
     const lastSaid = [...log].reverse().find((e) => e.kind === "event" && e.event.type === "say");
-    const heard = lastSaid && lastSaid.kind === "event" && lastSaid.event.type === "say" ? lastSaid.event.text : "";
+    const heard = lastSaid && lastSaid.kind === "event" && lastSaid.event.type === "say" ? plainSpeech(lastSaid.event.text) : "";
     await this.runTurn(
       `[The student just came back to this board after a break. The last thing you said was: "${heard.slice(0, 200)}". Greet them, recap where the lesson was in one or two spoken lines, ask if they are ready to pick up, then @ask. Do not add new board blocks in this turn.]`,
     );
@@ -429,8 +429,8 @@ export class Session {
       if (this.state === "thinking") this.setState("speaking");
     }
     if (e.type === "say") this.turnWords.said += words(e.text);
-    else if (e.type === "block.append") this.turnWords.wrote += words(e.html.replace(/<[^>]+>/g, " "));
-    else if (e.type === "block.add" && e.block.type === "html") this.turnWords.wrote += words(e.block.html.replace(/<[^>]+>/g, " "));
+    else if (e.type === "block.append") this.turnWords.wrote += words(htmlToText(e.html));
+    else if (e.type === "block.add" && e.block.type === "html") this.turnWords.wrote += words(htmlToText(e.block.html));
     else if (e.type === "block.add" && e.block.type === "svg") this.turnWords.diagrams += 1;
     if (e.type === "block.add" && e.block.type === "image") void this.resolveImage(e.block.id, e.block.prompt);
   }
@@ -708,7 +708,7 @@ function intakeOf(log: ReturnType<Store["log"]>): { role: "tutor" | "student"; t
   const out: { role: "tutor" | "student"; text: string }[] = [];
   for (const row of log) {
     if (row.kind === "user") out.push({ role: "student", text: row.text });
-    else if (row.event.type === "say") out.push({ role: "tutor", text: row.event.text });
+    else if (row.event.type === "say") out.push({ role: "tutor", text: plainSpeech(row.event.text) });
   }
   return out.slice(-20);
 }
@@ -718,7 +718,7 @@ function boardSummary(board: BoardState): string {
   const lines = board.blocks.map((b) => {
     const col = "column" in b ? ` col ${b.column}` : "";
     let what = "";
-    if (b.type === "html") what = b.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 100);
+    if (b.type === "html") what = htmlToText(b.html).slice(0, 100);
     else if (b.type === "image") what = b.prompt.slice(0, 80);
     else if (b.type === "annotation") what = `${b.kind} on ${b.target}${b.match ? `: "${b.match.slice(0, 40)}"` : ""}`;
     else if (b.type === "page") what = `${b.source} page ${b.page}`;
@@ -748,7 +748,7 @@ function transcriptOf(log: ReturnType<Store["log"]>): string {
   const lines: string[] = [];
   for (const row of log) {
     if (row.kind === "user") lines.push(`Student: ${row.text}`);
-    else if (row.event.type === "say") lines.push(`Tutor: ${row.event.text}`);
+    else if (row.event.type === "say") lines.push(`Tutor: ${plainSpeech(row.event.text)}`);
     else if (row.event.type === "section") lines.push(`[Section: ${row.event.title}]`);
   }
   const text = lines.join("\n");
