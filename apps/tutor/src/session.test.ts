@@ -143,6 +143,30 @@ describe("session", () => {
     expect(s.board.blocks.find((b) => b.id === "plan")).toMatchObject({ html: "v1\n" });
   });
 
+  it("replaces a diagram drawn again under a new id instead of adding a second one", async () => {
+    const { s, msgs } = await teaching();
+    const svg = '<svg viewBox="0 0 300 200"><rect x="10" y="10" width="80" height="40"/></svg>';
+    process.env.FAKE_BODY = `@say a\n@svg id=ac_loop col=1 caption="Actor-Critic inside the RL loop"\n${svg}\n@end\n@continue\n`;
+    await s.user("go on");
+    process.env.FAKE_BODY = `@say b\n@svg id=ac_loop_2 col=2 caption="Actor-critic inside the RL loop."\n${svg}\n@end\n@annotate id=ann_fb target=ac_loop_2 kind=circle at=center\n@continue\n`;
+    await s.user("go ahead");
+    expect(s.board.blocks.filter((b) => b.type === "svg").map((b) => b.id)).toEqual(["ac_loop"]);
+    expect(s.board.blocks.find((b) => b.id === "ac_loop")).toMatchObject({ column: 1 });
+    expect(s.board.blocks.find((b) => b.id === "ann_fb")).toMatchObject({ target: "ac_loop" });
+    expect(errors(msgs)).toEqual([]);
+  });
+
+  it("names what stayed on the board after an interruption so it is not drawn again", async () => {
+    const { s } = await teaching();
+    process.env.FAKE_BODY = '@say three\n@svg id=ac_loop col=1 caption="Actor-Critic loop"\n<svg viewBox="0 0 300 200"><rect x="1" y="1" width="9" height="9"/></svg>\n@end\n@say four\n@html id=b4 col=1\nfourth\n@end\n@continue\n';
+    await s.user("go on");
+    s.interrupt(1);
+    await s.user("ok go ahead");
+    const last = turns().at(-1)!;
+    expect(last.prompt).toContain('Still on the board from that turn: ac_loop (diagram "Actor-Critic loop")');
+    expect(last.prompt).toContain("Taken off the board, never seen: b4");
+  });
+
   it("tells the next turn about an interruption and answers what the student said over it", async () => {
     const { s } = await teaching();
     process.env.FAKE_LINE_MS = "60";

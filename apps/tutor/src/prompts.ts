@@ -93,6 +93,7 @@ ${builds}
 - Every turn ends with exactly one of @continue, @ask or @done, and nothing after it.
 - Never offer multiple-choice options. The student answers in their own words.
 - Never repeat a block id unless you intend to replace that block.
+- Never draw the same diagram or picture twice, or write a block that says what one on the board already says. Before you draw, check what is there: if the thing you mean is already on the board (also after an interruption), point at it with @annotate instead. To improve it, re-send it with the same id.
 - If the student's message is a question, answer it on the board and in speech, then return to the rhythm.
 
 ${sources}

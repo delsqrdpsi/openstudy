@@ -87,6 +87,8 @@ export class Session {
   private pendingModel: string | null = null;
   readonly meter = new UsageMeter();
   private sources: string[] = [];
+  /** A diagram or picture the model drew again under a new id, mapped to the block already on the board. */
+  private aliases = new Map<string, string>();
   private figureBase = process.env.TUTOR_PUBLIC_URL ?? `http://localhost:${process.env.TUTOR_PORT ?? 8787}`;
   private readonly out: (m: ServerMessage) => void;
 
@@ -323,10 +325,19 @@ export class Session {
       }
     }
     const said = this.spoken.slice(0, h).join(" ");
+    // Name what stayed and what went, so the next turn points at what is there instead of drawing it again.
+    const added = [...new Set(this.turnEvents.flatMap((te) => (te.e.type === "block.add" && te.e.block.type !== "annotation" ? [te.e.block.id] : [])))];
+    const kept = added.filter((id) => want.has(id)).map((id) => describe(want.get(id)!));
+    const gone = added.filter((id) => !want.has(id));
     // The model is always told it was cut off, and where, so it does not carry on as if it had finished.
-    this.interruptNote = `[The student interrupted you. ${said ? `They heard up to: "${said.slice(-300)}".` : "They heard nothing of your last turn."} ${
-      changed ? "What you wrote after that was taken off the board; re-add it later if it still matters." : "Keep what is on the board."
-    }]`;
+    this.interruptNote = [
+      `[The student interrupted you. ${said ? `They heard up to: "${said.slice(-300)}".` : "They heard nothing of your last turn."}`,
+      kept.length ? `Still on the board from that turn: ${kept.join("; ")}. Do not draw or write these again; point at them with @annotate.` : "",
+      gone.length ? `Taken off the board, never seen: ${gone.join(", ")}. Re-add them later only if they still matter.` : changed ? "What you wrote after that was taken off the board; re-add it later if it still matters." : "Keep what is on the board.",
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .concat("]");
   }
 
   /** The student answered a pending offer (building an interactive model). */
@@ -413,6 +424,11 @@ export class Session {
 
   private emit(e: LessonEvent) {
     if (this.closed) return;
+    e = this.dedupe(e);
+    if (e.type === "block.add" && e.block.type === "image") {
+      const { id, prompt } = e.block;
+      if (this.board.blocks.some((b) => b.id === id && b.type === "image" && b.prompt === prompt)) return; // the same picture again
+    }
     if (e.type === "block.add" && e.block.type === "image" && !this.images) return; // pictures are off
     // Never store an event the client would reject: one bad id would blank the saved board on reload.
     const ok = LessonEventSchema.safeParse(e);
@@ -433,6 +449,27 @@ export class Session {
     else if (e.type === "block.add" && e.block.type === "html") this.turnWords.wrote += words(e.block.html.replace(/<[^>]+>/g, " "));
     else if (e.type === "block.add" && e.block.type === "svg") this.turnWords.diagrams += 1;
     if (e.type === "block.add" && e.block.type === "image") void this.resolveImage(e.block.id, e.block.prompt);
+  }
+
+  /**
+   * The model sometimes draws a diagram or picture it already drew, under a
+   * new id (after an interruption, or when it forgets). Same caption on a
+   * diagram, or same prompt on a picture, is the same thing: it replaces the
+   * one on the board in place, and later references to the new id go to it.
+   */
+  private dedupe(e: LessonEvent): LessonEvent {
+    const alias = (id: string) => this.aliases.get(id) ?? id;
+    if (e.type === "block.append" || e.type === "block.remove" || e.type === "focus" || e.type === "image.update") return { ...e, id: alias(e.id) };
+    if (e.type !== "block.add") return e;
+    const block = e.block;
+    if (block.type === "annotation") return { ...e, block: { ...block, target: alias(block.target) } };
+    if (this.aliases.has(block.id)) return { ...e, block: { ...block, id: alias(block.id) } as typeof block };
+    const key = sameness(block);
+    const twin = key ? this.board.blocks.find((b) => b.id !== block.id && b.type === block.type && sameness(b) === key) : undefined;
+    if (!twin) return e;
+    this.aliases.set(block.id, twin.id);
+    this.out({ type: "debug", text: `${block.id} is ${twin.id} drawn again; replaced in place` });
+    return { ...e, block: { ...block, id: twin.id, column: "column" in twin ? twin.column : block.column } as typeof block };
   }
 
   private async resolveImage(id: string, prompt: string) {
@@ -723,11 +760,26 @@ function boardSummary(board: BoardState): string {
     else if (b.type === "annotation") what = `${b.kind} on ${b.target}${b.match ? `: "${b.match.slice(0, 40)}"` : ""}`;
     else if (b.type === "page") what = `${b.source} page ${b.page}`;
     else if (b.type === "embed") what = b.title ?? "";
-    else if (b.type === "svg") what = "diagram";
+    else if (b.type === "svg") what = `diagram${b.caption ? `: ${b.caption}` : ""}`;
     return `- ${b.id} (${b.type}${col}) ${what}`;
   });
   const text = lines.join("\n");
   return text.length > 4000 ? "...\n" + text.slice(-4000) : text || "(empty)";
+}
+
+/** What makes two diagrams or two pictures the same one: the caption or the prompt, ignoring case and punctuation. */
+function sameness(b: BoardState["blocks"][number]): string | null {
+  const text = b.type === "svg" ? b.caption : b.type === "image" ? b.prompt : undefined;
+  const key = text?.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return key ? key : null;
+}
+
+/** A block as one short phrase for a note to the model. */
+function describe(b: BoardState["blocks"][number]): string {
+  if (b.type === "svg") return `${b.id} (diagram${b.caption ? ` "${b.caption}"` : ""})`;
+  if (b.type === "image") return `${b.id} (picture "${b.prompt.slice(0, 60)}")`;
+  if (b.type === "html") return `${b.id} ("${b.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 60)}")`;
+  return `${b.id} (${b.type})`;
 }
 
 function escapeHtml(s: string): string {
