@@ -12,6 +12,8 @@ interface Props {
   state: BoardState;
   turn: TurnState;
   transcript: TranscriptEntry[];
+  /** Answers the tutor offers for its question; one click (or its number) sends it. */
+  options?: string[];
   writingId?: string | null;
   statusNote?: string | null;
   /** Student input. Omit for read-only playback. */
@@ -38,7 +40,7 @@ interface Props {
  * keypoints bottom-right of the board, question options and the input bar
  * along the bottom. Shared by live lessons and fixture playback.
  */
-export function LessonShell({ title, state, turn, transcript, writingId, statusNote, onSay, onInterrupt, extraControls, inputControls, hearing, paused, caption, boardId, notices }: Props) {
+export function LessonShell({ title, state, turn, transcript, options = [], writingId, statusNote, onSay, onInterrupt, extraControls, inputControls, hearing, paused, caption, boardId, notices }: Props) {
   const board = useRef<BoardHandle>(null);
   const [scale, setScale] = useState(1);
   const [follow, setFollow] = useState(true);
@@ -54,6 +56,9 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  // The options row's height, so the chat panel ends above it too.
+  const optionsRow = useRef<HTMLDivElement>(null);
+  const [optionsHeight, setOptionsHeight] = useState(0);
   const onScale = useCallback((s: number) => setScale(s), []);
 
   // Chat panel: remember the last choice; first visit on a narrow window starts collapsed.
@@ -85,6 +90,40 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
   };
 
   const busy = turn === "thinking" || turn === "speaking";
+  const choices = onSay && !busy ? options : [];
+
+  useEffect(() => {
+    const el = optionsRow.current;
+    if (!el) {
+      setOptionsHeight(0);
+      return;
+    }
+    const ro = new ResizeObserver(() => setOptionsHeight(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [choices.length]);
+
+  // A number key picks that option, unless the student is typing somewhere.
+  const pick = useRef<(i: number) => void>(() => {});
+  useEffect(() => {
+    pick.current = (i) => {
+      if (choices[i]) submit(choices[i]);
+    };
+  });
+  useEffect(() => {
+    if (!choices.length) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.ctrlKey || e.metaKey || e.altKey || t?.closest("input, textarea, select, [contenteditable]")) return;
+      const n = Number(e.key);
+      if (!Number.isInteger(n) || n < 1 || n > choices.length) return;
+      e.preventDefault();
+      pick.current(n - 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [choices.length]);
+
   const turnLabel = turn === "thinking" ? "thinking" : turn === "speaking" ? "teaching" : turn === "waiting" ? "your turn" : turn === "done" ? "lesson complete" : "";
   const lastTutor = [...transcript].reverse().find((e) => e.kind === "tutor");
   const currentSection = state.sections[state.sections.length - 1];
@@ -97,6 +136,19 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
       <div className={hearing ? "ui-card self-end max-w-full truncate px-3 py-1.5 text-[14px] italic text-neutral-600" : "sr-only"} aria-live="polite">
         {hearing ?? ""}
       </div>
+      {choices.length > 0 && (
+        <div ref={optionsRow} className="flex flex-col items-end gap-1.5" role="group" aria-label="Answer options">
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {choices.map((o, i) => (
+              <button key={i} type="button" className="ui-chip" onClick={() => submit(o)} title={`Press ${i + 1}, or say it`}>
+                <span className="letter">{i + 1}</span>
+                {o}
+              </button>
+            ))}
+          </div>
+          <span className="pr-2 text-[12px] text-neutral-500">Pick one, or type or say your own answer</span>
+        </div>
+      )}
       <form
         className="ui-card flex w-full items-center gap-2 p-1.5 pl-3"
         onSubmit={(e) => {
@@ -107,7 +159,7 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
         <span className={busy ? "ui-pulse" : "h-2 w-2 rounded-full bg-neutral-300"} aria-hidden />
         <input
           className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-neutral-400"
-          placeholder={paused ? "Paused. Type to ask something, or press play" : busy ? "Type to interrupt..." : "Your answer, or a question"}
+          placeholder={paused ? "Paused. Type to ask something, or press play" : busy ? "Type to interrupt..." : choices.length ? "Your own answer, or the option's number" : "Your answer, or a question"}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           aria-label="Message the tutor"
@@ -245,7 +297,7 @@ export function LessonShell({ title, state, turn, transcript, writingId, statusN
             <ChatList transcript={transcript} />
           </div>
           {/* The board's paper shows through here, under the message box. */}
-          {onSay && <div className="h-[76px] shrink-0" aria-hidden />}
+          {onSay && <div className="shrink-0" style={{ height: 76 + (choices.length && optionsHeight ? optionsHeight + 6 : 0) }} aria-hidden />}
         </aside>
       )}
       {composer}
