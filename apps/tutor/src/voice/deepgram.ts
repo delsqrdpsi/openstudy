@@ -28,28 +28,57 @@ export function voiceConfig(): VoiceConfig {
   return { provider: "browser" };
 }
 
-/** Start Aura-2 on one line. The response body streams linear16 PCM at SAMPLE_RATE, mono. */
-export async function speak(text: string, signal?: AbortSignal): Promise<Response> {
+/** Aura-2's speaking-rate range; outside it the audio degrades. */
+export const SPEED_RANGE = { min: 0.7, max: 1.5 };
+/**
+ * Whether this Deepgram account takes the speed parameter (an early-access
+ * voice control). Learned on the first request that sets it: a refusal that
+ * goes away without the parameter means no, and the browser stretches
+ * playback instead.
+ */
+let speedSupported: boolean | null = null;
+
+/**
+ * Start Aura-2 on one line. The response body streams linear16 PCM at
+ * SAMPLE_RATE, mono. `speed` is the rate the audio was actually made at.
+ */
+export async function speak(text: string, opts: { speed?: number; signal?: AbortSignal } = {}): Promise<{ res: Response; speed: number }> {
   const k = key();
   if (!k) throw new VoiceError(503, "DEEPGRAM_API_KEY is not set");
   const line = text.trim().slice(0, MAX_TEXT);
   if (!line) throw new VoiceError(400, "nothing to say");
+  const wanted = opts.speed && Math.abs(opts.speed - 1) > 0.01 ? Math.min(SPEED_RANGE.max, Math.max(SPEED_RANGE.min, opts.speed)) : 1;
+  const withSpeed = wanted !== 1 && speedSupported !== false;
+  const res = await request(k, line, withSpeed ? wanted : undefined, opts.signal);
+  if (res.ok && res.body) {
+    if (withSpeed) speedSupported = true;
+    return { res, speed: withSpeed ? wanted : 1 };
+  }
+  const detail = (await res.text().catch(() => "")).slice(0, 300);
+  if (withSpeed && speedSupported === null && (res.status === 400 || res.status === 403)) {
+    const plain = await request(k, line, undefined, opts.signal);
+    if (plain.ok && plain.body) {
+      speedSupported = false;
+      log.warn(`deepgram did not take speed on this account (${res.status}: ${detail || res.statusText}); the browser will adjust playback instead`);
+      return { res: plain, speed: 1 };
+    }
+  }
+  throw new VoiceError(502, `deepgram speak ${res.status}: ${detail || res.statusText}`);
+}
+
+function request(k: string, line: string, speed: number | undefined, signal?: AbortSignal): Promise<Response> {
   const url = new URL("https://api.deepgram.com/v1/speak");
   url.searchParams.set("model", TTS_MODEL);
   url.searchParams.set("encoding", "linear16");
   url.searchParams.set("sample_rate", String(SAMPLE_RATE));
   url.searchParams.set("container", "none");
-  const res = await fetch(url, {
+  if (speed !== undefined) url.searchParams.set("speed", speed.toFixed(2));
+  return fetch(url, {
     method: "POST",
     headers: { authorization: `Token ${k}`, "content-type": "application/json" },
     body: JSON.stringify({ text: line }),
     signal,
   });
-  if (!res.ok || !res.body) {
-    const detail = (await res.text().catch(() => "")).slice(0, 300);
-    throw new VoiceError(res.status === 401 || res.status === 403 ? 502 : 502, `deepgram speak ${res.status}: ${detail || res.statusText}`);
-  }
-  return res;
 }
 
 export class VoiceError extends Error {

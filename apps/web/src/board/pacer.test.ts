@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import type { LessonEvent } from "@openstudy/shared";
-import { Pacer, estimateSpeechMs, visibleChars, type PacedItem } from "./pacer";
+import { Pacer, READ_BASE_MS, READ_MAX_MS, READ_MS_PER_VISUAL, estimateSpeechMs, readingPauseMs, visibleChars, type PacedItem } from "./pacer";
+
+describe("readingPauseMs", () => {
+  it("rests a breath after a bare transition, longer after a full board, and never past the cap", () => {
+    expect(readingPauseMs({ chars: 0, visuals: 0 })).toBe(READ_BASE_MS);
+    const text = readingPauseMs({ chars: 300, visuals: 0 });
+    expect(text).toBeGreaterThan(READ_BASE_MS + 3000);
+    expect(readingPauseMs({ chars: 300, visuals: 1 })).toBe(text + READ_MS_PER_VISUAL);
+    expect(readingPauseMs({ chars: 5000, visuals: 4 })).toBe(READ_MAX_MS);
+  });
+});
 
 function setup() {
   let t = 0;

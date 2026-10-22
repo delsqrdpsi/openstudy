@@ -86,6 +86,46 @@ test("Stop drops events still in flight and leaves 'teaching' at once", async ({
   await expect(chat(page).getByText(/Point 1 is here/)).toHaveCount(2, { timeout: 15000 });
 });
 
+test("a @wait turn holds for the student; 'go on' continues it without a message to the tutor", async ({ page }) => {
+  await openLesson(page, "waiting");
+  await expect(chat(page).getByText("Second line.", { exact: true })).toBeVisible({ timeout: 15000 });
+  await page.getByLabel("Message the tutor").fill("look");
+  await page.getByLabel("Send").click();
+  await expect(page.getByRole("button", { name: "Go on" })).toBeVisible({ timeout: 15000 });
+  await expect(page.locator("aside header")).toContainText("take a look");
+  await page.waitForTimeout(1500);
+  expect(received().some((m) => m.type === "continue")).toBe(false);
+  await page.getByLabel("Message the tutor").fill("ok go on");
+  await page.getByLabel("Send").click();
+  await expect.poll(() => received().some((m) => m.type === "continue")).toBe(true);
+  expect(received().some((m) => m.type === "user" && m.text === "ok go on")).toBe(false);
+  await expect(chat(page).getByText("Going on.", { exact: true })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("button", { name: "Go on" })).toHaveCount(0);
+});
+
+test("typing 'wait' while the tutor talks pauses the lesson instead of cutting it", async ({ page }) => {
+  await openLesson(page, "pausing");
+  await expect(chat(page).getByText("Second line.", { exact: true })).toBeVisible({ timeout: 15000 });
+  await page.getByLabel("Message the tutor").fill("go on");
+  await page.getByLabel("Send").click();
+  await expect(chat(page).getByText(/Point 1 is here/)).toBeVisible({ timeout: 15000 });
+  await page.getByLabel("Message the tutor").fill("wait");
+  await page.getByLabel("Send").click();
+  await expect(page.getByText(/^Paused\./)).toBeVisible();
+  await expect.poll(() => received().some((m) => m.type === "pace")).toBe(true);
+  expect(received().some((m) => m.type === "interrupt")).toBe(false);
+  expect(received().some((m) => m.type === "user" && m.text === "wait")).toBe(false);
+  // Nothing moves while paused.
+  const before = await chat(page).innerText();
+  await page.waitForTimeout(2500);
+  expect(await chat(page).innerText()).toBe(before);
+  await page.getByLabel("Message the tutor").fill("ok");
+  await page.getByLabel("Send").click();
+  await expect(page.getByText(/^Paused\./)).toHaveCount(0);
+  // The rest of the turn plays on from where it was held.
+  await expect(chat(page).getByText(/Point 6 is here/)).toBeVisible({ timeout: 45000 });
+});
+
 test("a long paste is clipped to what the server accepts", async ({ page }) => {
   await openLesson(page, "paste");
   await expect(chat(page).getByText("Second line.", { exact: true })).toBeVisible({ timeout: 15000 });

@@ -78,6 +78,8 @@ export function corsHeaders(origin: string | undefined): Record<string, string> 
     "access-control-allow-origin": origin,
     "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
     "access-control-allow-headers": "content-type",
+    // What /tts tells the browser about the audio it sends.
+    "access-control-expose-headers": "x-sample-rate, x-speed",
     vary: "origin",
   };
 }

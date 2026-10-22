@@ -159,22 +159,29 @@ const http = createServer((req, res) => {
   res.end();
 });
 
-/** POST /tts {text}: the line as streamed PCM, for the browser to play as it arrives. */
+/**
+ * POST /tts {text, speed?}: the line as streamed PCM, for the browser to play
+ * as it arrives. x-speed says the rate the audio was made at: the browser
+ * stretches playback for whatever part of the asked-for speed Deepgram did not apply.
+ */
 async function streamSpeech(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) {
   const body = await readBody(req, 20000);
   if (body === null) return json(res, 413, { error: "too long" });
   let text: string;
+  let speed: number | undefined;
   try {
-    text = String((JSON.parse(body) as { text?: unknown }).text ?? "");
+    const b = JSON.parse(body) as { text?: unknown; speed?: unknown };
+    text = String(b.text ?? "");
+    speed = typeof b.speed === "number" && Number.isFinite(b.speed) ? b.speed : undefined;
   } catch {
     return json(res, 400, { error: "bad json" });
   }
   const abort = new AbortController();
   req.on("close", () => abort.abort());
   try {
-    const up = await speak(text, abort.signal);
+    const { res: up, speed: applied } = await speak(text, { speed, signal: abort.signal });
     activeMeter()?.tts(text.length);
-    res.writeHead(200, { "content-type": "audio/l16", "x-sample-rate": String(SAMPLE_RATE), "cache-control": "no-store", ...cors(res) });
+    res.writeHead(200, { "content-type": "audio/l16", "x-sample-rate": String(SAMPLE_RATE), "x-speed": String(applied), "cache-control": "no-store", ...cors(res) });
     for await (const chunk of up.body as unknown as AsyncIterable<Uint8Array>) {
       if (abort.signal.aborted) break;
       res.write(chunk);
@@ -254,6 +261,9 @@ wss.on("connection", (ws: WebSocket) => {
           break;
         case "continue":
           await session?.continue();
+          break;
+        case "pace":
+          session?.setPace(msg.slow, msg.text);
           break;
         case "model":
           session?.setModel(msg.model);

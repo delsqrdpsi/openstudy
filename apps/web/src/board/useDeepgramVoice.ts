@@ -80,6 +80,10 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
   const queue = useRef<{ text: string; onEnd?: () => void }[]>([]);
   const playing = useRef<Playing | null>(null);
   const mutedRef = useRef(false);
+  const rateRef = useRef(1);
+  useEffect(() => {
+    rateRef.current = rate;
+  }, [rate]);
   const speakingRef = useRef(false);
   const captionTimer = useRef<number | null>(null);
   const playNextRef = useRef<() => void>(() => {});
@@ -151,7 +155,8 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
     speakingRef.current = true;
     setSpeaking(true);
     setCaption({ text: p.text, wordIndex: -1 });
-    const estSec = estimateSpeechMs(p.text, 1) / 1000;
+    const rate = rateRef.current;
+    const estSec = estimateSpeechMs(p.text, rate) / 1000;
     captionTimer.current = window.setInterval(() => {
       if (!p.startAt) return;
       const elapsed = ac.currentTime - p.startAt;
@@ -166,10 +171,14 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
         const res = await fetch(`${TUTOR_HTTP}/tts`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ text: p.text }),
+          body: JSON.stringify({ text: p.text, speed: rate }),
           signal: p.abort.signal,
         });
         if (!res.ok || !res.body) throw new Error(`tts ${res.status}`);
+        // The server says what speed the audio was made at; the rest of the asked-for
+        // speed is made up in playback (the voice shifts a little in pitch then).
+        const made = Number(res.headers.get("x-speed")) || 1;
+        const stretch = Math.max(0.5, Math.min(2, rate / made));
         const reader = res.body.getReader();
         let rest = new Uint8Array(0);
         for (;;) {
@@ -182,6 +191,7 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
           buf.copyToChannel(samples, 0);
           const src = ac.createBufferSource();
           src.buffer = buf;
+          if (stretch !== 1) src.playbackRate.value = stretch;
           src.connect(ac.destination);
           if (!p.startAt) {
             p.startAt = ac.currentTime + 0.06;
@@ -189,8 +199,9 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
           }
           if (at < ac.currentTime) at = ac.currentTime + 0.02;
           src.start(at);
-          at += buf.duration;
-          p.scheduled += buf.duration;
+          const plays = buf.duration / stretch;
+          at += plays;
+          p.scheduled += plays;
           p.sources.push(src);
         }
         p.streamed = true;
@@ -258,7 +269,7 @@ export function useDeepgramVoice(opts: VoiceOptions, cfg: Extract<VoiceConfig, {
     },
     [supported.tts, playNext],
   );
-  const estimate = useCallback((text: string) => estimateSpeechMs(text, 1), []);
+  const estimate = useCallback((text: string) => estimateSpeechMs(text, rateRef.current), []);
 
   // Pausing suspends the audio clock, so scheduled samples hold in place and the
   // caption stops; resuming lets them run on and re-arms the end-of-line timer.
