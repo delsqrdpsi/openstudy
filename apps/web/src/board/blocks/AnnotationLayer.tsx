@@ -1,5 +1,5 @@
 "use client";
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import type { AnnotationBlock } from "@openstudy/shared";
 import { ANNOTATION_COLORS } from "@openstudy/shared";
 import { hashId, markerPath, measureMatch, rectsForBoxes, sameList, seeded, union, wavyUnderline, wobblyEllipse, type Rect } from "../annotations";
@@ -21,24 +21,48 @@ type Drawn =
   | { id: string; kind: "underline"; color: string; paths: { d: string; length: number }[] };
 
 /**
+ * Where the picture sits in the block, in the block's unscaled pixels. Blocks
+ * mark it with data-frame; positions (at=, region=) and page text boxes are
+ * fractions of the picture, not of the whole block with its caption.
+ */
+function frameRect(targetEl: HTMLElement, scale: number): Rect {
+  const frame = targetEl.querySelector<HTMLElement>("[data-frame]");
+  if (!frame) return { x: 0, y: 0, w: targetEl.offsetWidth, h: targetEl.offsetHeight };
+  const t = targetEl.getBoundingClientRect();
+  const f = frame.getBoundingClientRect();
+  return { x: (f.left - t.left) / scale, y: (f.top - t.top) / scale, w: frame.offsetWidth, h: frame.offsetHeight };
+}
+
+/**
  * Marks over one block. Everything is measured in the block's own unscaled
  * pixels: layout sizes come from offsetWidth/offsetHeight, and the screen
  * rects of matched text are divided by the block's on-screen scale, read off
  * the element itself. So zooming the camera never re-measures.
  */
 function AnnotationLayerView({ annotations, targetEl, version, boxes }: Props) {
+  // A picture can settle to its size without the block resizing (a narrower
+  // image in the same height), so watch the frame too.
+  const [frameVersion, setFrameVersion] = useState(0);
+  useEffect(() => {
+    const frame = targetEl?.querySelector("[data-frame]");
+    if (!frame) return;
+    const ro = new ResizeObserver(() => setFrameVersion((v) => v + 1));
+    ro.observe(frame);
+    return () => ro.disconnect();
+  }, [targetEl]);
+
   const drawn = useMemo<Drawn[]>(() => {
     const out: Drawn[] = [];
     if (!targetEl) return out;
     const W = targetEl.offsetWidth;
-    const H = targetEl.offsetHeight;
     // The camera's zoom, as it applies to this element right now.
     const onScreen = targetEl.getBoundingClientRect().width;
     const scale = W > 0 && onScreen > 0 ? onScreen / W : 1;
+    const f = frameRect(targetEl, scale);
     for (const a of annotations) {
       let rects: Rect[] = [];
-      if (a.region) rects = [{ x: a.region.x * W, y: a.region.y * H, w: a.region.w * W, h: a.region.h * H }];
-      else if (a.match && boxes) rects = rectsForBoxes(boxes, a.match, W, H);
+      if (a.region) rects = [{ x: f.x + a.region.x * f.w, y: f.y + a.region.y * f.h, w: a.region.w * f.w, h: a.region.h * f.h }];
+      else if (a.match && boxes) rects = rectsForBoxes(boxes, a.match, f.w, f.h).map((r) => ({ ...r, x: r.x + f.x, y: r.y + f.y }));
       else if (a.match) rects = measureMatch(targetEl, a.match, scale);
       // No match: skip the mark. A highlight over the whole block is worse than none.
       if (!rects.length) continue;
@@ -51,9 +75,9 @@ function AnnotationLayerView({ annotations, targetEl, version, boxes }: Props) {
       } else out.push({ id: a.id, kind: "underline", color, paths: rects.map((r) => wavyUnderline(r, rnd)) });
     }
     return out;
-    // version is a re-measure trigger from the ResizeObserver.
+    // version and frameVersion are re-measure triggers from the ResizeObservers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [annotations, targetEl, version, boxes]);
+  }, [annotations, targetEl, version, frameVersion, boxes]);
 
   if (!drawn.length) return null;
   return (

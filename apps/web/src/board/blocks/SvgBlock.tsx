@@ -14,6 +14,7 @@ export function SvgBlock({ block }: { block: SvgBlockT }) {
   return (
     <div data-block-id={block.id} style={{ width: block.width * scale }} data-motion={block.motion ? "1" : undefined}>
       <div
+        data-frame=""
         className="[&>svg]:h-full [&>svg]:w-full"
         style={{ width: block.width * scale, height: block.height * scale }}
         dangerouslySetInnerHTML={{ __html: svg }}
