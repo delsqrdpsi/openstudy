@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import type { ImageBlock as ImageBlockT } from "@openstudy/shared";
 
 export const IMAGE_W = 528;
@@ -20,16 +21,30 @@ function Sketching() {
 }
 
 export function ImageBlock({ block }: { block: ImageBlockT }) {
+  // The picture's drawn size, once it has loaded. The frame shrinks to it so
+  // marks placed by position (at=right) land on the picture, not beside it.
+  const [fit, setFit] = useState<{ url: string; w: number; h: number } | null>(null);
+  const size = fit && fit.url === block.url ? fit : { w: IMAGE_W, h: IMAGE_H };
+  const measure = (img: HTMLImageElement | null) => {
+    const url = block.url;
+    if (!url || !img || !img.complete || !img.naturalWidth || !img.naturalHeight) return;
+    const s = Math.min(1, IMAGE_W / img.naturalWidth, IMAGE_H / img.naturalHeight);
+    const w = Math.round(img.naturalWidth * s);
+    const h = Math.round(img.naturalHeight * s);
+    setFit((prev) => (prev && prev.url === url && prev.w === w && prev.h === h ? prev : { url, w, h }));
+  };
   return (
     <div data-block-id={block.id} style={{ width: IMAGE_W }}>
-      <div style={{ width: IMAGE_W, height: IMAGE_H, position: "relative" }}>
+      <div data-frame="" style={{ width: size.w, height: size.h, position: "relative" }}>
         {block.status === "ready" && block.url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
+            ref={measure}
             src={block.url}
             alt={block.prompt}
             className="wb-enter"
-            style={{ display: "block", maxWidth: IMAGE_W, maxHeight: IMAGE_H, objectFit: "contain", mixBlendMode: "multiply" }}
+            onLoad={(e) => measure(e.currentTarget)}
+            style={{ display: "block", width: "100%", height: "100%", objectFit: "contain", objectPosition: "left top", mixBlendMode: "multiply" }}
             draggable={false}
           />
         ) : block.status === "failed" ? (
