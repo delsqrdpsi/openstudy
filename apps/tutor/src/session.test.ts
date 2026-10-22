@@ -167,6 +167,29 @@ describe("session", () => {
     expect(last.prompt).toContain("Taken off the board, never seen: b4");
   });
 
+  it("calls out a turn that wrote far more than it said, and checks in before going on", async () => {
+    const { s } = await teaching();
+    process.env.FAKE_BODY = `@say Step four.\n@html id=step4 col=1\n${"Critic predicted five, got minus one, new state worth seven. ".repeat(5)}\n@end\n@continue\n`;
+    await s.user("go on");
+    await s.continue();
+    const last = turns().at(-1)!;
+    expect(last.prompt).toContain("you wrote");
+    expect(last.prompt).toContain("Say out loud every line you write");
+    expect(last.prompt).toContain("check in on the step you just covered");
+  });
+
+  it("checks in after a few steps in a row, and not before", async () => {
+    const { s } = await teaching();
+    process.env.FAKE_BODY = "@say one two three four\n@html id=b9 col=1\none two three four\n@end\n@continue\n";
+    await s.user("go on");
+    for (let i = 0; i < 2; i++) {
+      await s.continue();
+      expect(turns().at(-1)!.prompt).not.toContain("check in");
+    }
+    await s.continue();
+    expect(turns().at(-1)!.prompt).toContain("check in on the step you just covered");
+  });
+
   it("tells the next turn about an interruption and answers what the student said over it", async () => {
     const { s } = await teaching();
     process.env.FAKE_LINE_MS = "60";

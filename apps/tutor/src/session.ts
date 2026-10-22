@@ -56,8 +56,10 @@ export class Session {
   private cancelPending = false;
   private spoken: string[] = [];
   /** Words said and written this turn, and diagrams drawn, so a thin board gets called out next turn. */
-  private turnWords = { said: 0, wrote: 0, diagrams: 0 };
+  private turnWords = { said: 0, wrote: 0, diagrams: 0, math: 0 };
   private boardNudge: string | null = null;
+  /** The last turn was hard going (math, or far more written than said): check in before teaching more. */
+  private checkInDue = false;
   /** What the student said while the tutor could not take it yet; answered next. */
   private queued: string | null = null;
   /** The board when the current (or last) turn began, and what happened to it since. */
@@ -418,7 +420,11 @@ export class Session {
     if (this.closed || !this.awaitingContinue || this.state !== "waiting" || this.turnRunning) return;
     this.awaitingContinue = false;
     this.autoRun += 1;
-    const nudge = this.autoRun >= 4 ? " You have been talking for a while now; make the next step land with a real check question." : "";
+    const checkIn = this.checkInDue || this.autoRun >= 3;
+    this.checkInDue = false;
+    const nudge = checkIn
+      ? " Before teaching anything new, check in on the step you just covered: one short spoken line that names it and asks whether it made sense or whether to go through it slower, then @ask. Write nothing new on the board this turn."
+      : "";
     await this.runTurn(this.withLatePlan(`[The student is listening. Carry on with the next step.${nudge}]`));
   }
 
@@ -445,8 +451,13 @@ export class Session {
       if (this.state === "thinking") this.setState("speaking");
     }
     if (e.type === "say") this.turnWords.said += words(e.text);
-    else if (e.type === "block.append") this.turnWords.wrote += words(e.html.replace(/<[^>]+>/g, " "));
-    else if (e.type === "block.add" && e.block.type === "html") this.turnWords.wrote += words(e.block.html.replace(/<[^>]+>/g, " "));
+    else if (e.type === "block.append") {
+      this.turnWords.wrote += words(e.html.replace(/<[^>]+>/g, " "));
+      if (e.html.includes("$")) this.turnWords.math += 1;
+    } else if (e.type === "block.add" && e.block.type === "html") {
+      this.turnWords.wrote += words(e.block.html.replace(/<[^>]+>/g, " "));
+      if (e.block.html.includes("$")) this.turnWords.math += 1;
+    }
     else if (e.type === "block.add" && e.block.type === "svg") this.turnWords.diagrams += 1;
     if (e.type === "block.add" && e.block.type === "image") void this.resolveImage(e.block.id, e.block.prompt);
   }
@@ -578,13 +589,23 @@ export class Session {
   }
 
   /**
-   * The board should carry what was said. When a teaching turn speaks far
-   * more than it writes, the next turn opens with the numbers so the model
-   * corrects course, instead of drifting into a lecture with a bare board.
+   * The board should carry what was said, and speech should explain what was
+   * written. When a teaching turn speaks far more than it writes, or writes
+   * far more than it says, the next turn opens with the numbers so the model
+   * corrects course, instead of a lecture with a bare board or a wall of
+   * formulas nobody walked through.
    */
   private checkBoardCoverage() {
-    const { said, wrote, diagrams } = this.turnWords;
-    if (said < 40 || !this.planDelivered) return; // intake and short replies are fine
+    const { said, wrote, diagrams, math } = this.turnWords;
+    if (!this.planDelivered) return; // the intake is fine
+    if (wrote >= 40 && wrote > said * 1.5) {
+      log.info(`board ahead of speech on ${this.id}: said ${said}, wrote ${wrote}`);
+      this.boardNudge = `[Board check on your last turn: you wrote ${wrote} words but said only ${said}. The student follows by listening, and writing you do not explain is lost on them. Say out loud every line you write: where each number comes from and what it means. Write a worked example one line at a time, each line in its own small block right after the spoken line that explains it.]`;
+      this.checkInDue = true;
+      return;
+    }
+    if (math && this.autoRun >= 1) this.checkInDue = true; // two math steps in a row without a pause
+    if (said < 40) return; // short replies are fine
     const thin = wrote < said * 0.6;
     if (!thin) return;
     log.info(`board thin on ${this.id}: said ${said}, wrote ${wrote}, diagrams ${diagrams}`);
@@ -621,7 +642,8 @@ export class Session {
     this.spoken = [];
     this.turnStart = this.board;
     this.turnEvents = [];
-    this.turnWords = { said: 0, wrote: 0, diagrams: 0 };
+    this.turnWords = { said: 0, wrote: 0, diagrams: 0, math: 0 };
+    this.checkInDue = false;
     this.heard = null;
     this.turns += 1;
     let prompt = userText;
