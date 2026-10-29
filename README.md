@@ -140,7 +140,10 @@ Diagrams and the rules that keep the code easy to grow are in
   OpenStudy web app running here, so other websites you visit cannot drive a
   lesson, read your folders or spend your keys. It reads course material only
   under your home folder unless you set `SOURCES_ROOT`. See the network
-  section of `.env.example` to use a tablet on a trusted network.
+  section of `.env.example` to use a tablet on a trusted network. Everything
+  the model writes is treated as untrusted: board HTML and SVG are sanitised,
+  and every page carries a nonce-based Content-Security-Policy, so a
+  sanitiser gap still cannot run script.
 
 ## Checks
 
