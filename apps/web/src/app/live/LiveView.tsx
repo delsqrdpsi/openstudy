@@ -1,12 +1,18 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { goOnRequest, paceRequest, pauseRequest } from "@openstudy/shared";
 import { useLiveSession, type Offer, type Speaker } from "@/board/useLiveSession";
 import { isBoardId, newBoardId } from "@/board/liveProtocol";
 import { useVoice } from "@/board/useVoice";
 import { LessonShell } from "@/board/LessonShell";
 import { UsageBadge } from "@/board/UsageBadge";
 import { useBrainModels } from "@/board/useBrainModels";
+
+const RATE_KEY = "openstudy.speechRate";
+/** Aura-2's range; the browser voice takes the same so the slider means one thing. */
+const RATE_MIN = 0.7;
+const RATE_MAX = 1.5;
 
 /** A live lesson. The intake (topic and materials) arrives from the home page. */
 export function LiveView() {
@@ -64,14 +70,36 @@ export function LiveView() {
     (text: string) => {
       const l = liveRef.current;
       if (!l) return;
+      const busy = l.turn === "thinking" || l.turn === "speaking";
+      if (busy && pauseRequest(text)) {
+        // "Wait" or "slow down" over the tutor holds the lesson where it is rather
+        // than cutting it off: nothing is lost, and play (or "go on") carries on
+        // from the same word. A slow-down is also kept for the rest of the lesson.
+        pauseVoice();
+        l.pause();
+        l.pace(text, paceRequest(text) === "slow");
+        return;
+      }
+      if (goOnRequest(text)) {
+        // A bare "ok" or "go on" is the go-ahead, not an answer: un-pause, or end a wait.
+        if (paused) {
+          resumeVoice();
+          l.resume();
+          return;
+        }
+        if (l.hold) {
+          l.goOn();
+          return;
+        }
+      }
       // Answering while the tutor is still going cuts it off, the same as Stop, so
       // what was not heard comes off the board. Speaking or typing while paused
       // un-pauses: the student has moved on.
-      if (l.turn === "thinking" || l.turn === "speaking") l.interrupt();
+      if (busy) l.interrupt();
       l.say(text);
       stopVoice();
     },
-    [stopVoice],
+    [stopVoice, pauseVoice, resumeVoice, paused],
   );
   useEffect(() => {
     sayRef.current = say;
@@ -117,11 +145,11 @@ export function LiveView() {
       window.removeEventListener("keydown", onGesture, true);
     };
   }, [sound, startSound]);
-  const { hold } = live;
+  const { holdBack } = live;
   const waitingForSound = sound === "unknown" || (sound === "locked" && !voice.muted);
   useEffect(() => {
-    hold(waitingForSound);
-  }, [hold, waitingForSound]);
+    holdBack(waitingForSound);
+  }, [holdBack, waitingForSound]);
 
   useEffect(() => {
     if (started.current) return;
@@ -172,6 +200,27 @@ export function LiveView() {
     window.history.replaceState(null, "", `/live?${q.toString()}`);
   }, [boardId]);
 
+  // The speed is remembered across lessons, for whichever voice is in use.
+  const { setRate, provider } = voice;
+  useEffect(() => {
+    let saved = NaN;
+    try {
+      saved = Number(window.localStorage.getItem(RATE_KEY));
+    } catch {
+      /* storage unavailable */
+    }
+    // Applied once the voice is known, so the saved speed reaches the hosted voice too.
+    if (saved >= RATE_MIN && saved <= RATE_MAX) setRate(saved);
+  }, [setRate, provider]);
+  const onRate = (r: number) => {
+    setRate(r);
+    try {
+      window.localStorage.setItem(RATE_KEY, String(r));
+    } catch {
+      /* storage unavailable */
+    }
+  };
+
   // The speed popover closes on Escape and gives focus back to its button.
   useEffect(() => {
     if (!showVoiceMenu) return;
@@ -216,6 +265,8 @@ export function LiveView() {
       paused={paused}
       hearing={voice.listening && voice.heard ? voice.heard : null}
       notices={notices}
+      hold={live.hold}
+      onGoOn={live.goOn}
       inputControls={
         <button
           type="button"
@@ -258,23 +309,24 @@ export function LiveView() {
             >
               <SpeakerIcon off={voice.muted} />
             </button>
-            {voice.provider === "browser" && (
-              <button
-                ref={speedButton}
-                className="ui-btn"
-                onClick={() => setShowVoiceMenu((v) => !v)}
-                aria-label="Voice settings"
-                title="Speech speed"
-                aria-expanded={showVoiceMenu}
-                aria-controls="voice-speed"
-              >
-                {voice.rate.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")}×
-              </button>
-            )}
-            {showVoiceMenu && voice.provider === "browser" && (
+            <button
+              ref={speedButton}
+              className="ui-btn"
+              onClick={() => setShowVoiceMenu((v) => !v)}
+              aria-label="Voice settings"
+              title="Speech speed"
+              aria-expanded={showVoiceMenu}
+              aria-controls="voice-speed"
+            >
+              {voice.rate.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")}×
+            </button>
+            {showVoiceMenu && (
               <div id="voice-speed" className="ui-card absolute bottom-12 left-0 flex items-center gap-2 p-2 text-[12px]">
                 <span>Speed</span>
-                <input type="range" min={0.7} max={1.6} step={0.05} value={voice.rate} onChange={(e) => voice.setRate(Number(e.target.value))} aria-label="Speech speed" />
+                <input type="range" min={RATE_MIN} max={RATE_MAX} step={0.05} value={voice.rate} onChange={(e) => onRate(Number(e.target.value))} aria-label="Speech speed" />
+                <button type="button" className="ui-btn px-2" onClick={() => onRate(1)} title="Back to normal speed">
+                  1×
+                </button>
               </div>
             )}
           </div>

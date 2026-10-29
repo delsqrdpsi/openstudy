@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MAX_USER_TEXT, ServerMessageSchema, applyEvent, emptyBoard, type BoardState, type ClientMessage, type TurnState, type Usage } from "@openstudy/shared";
 import { entryFromEvent, pushEntry, type TranscriptEntry } from "@/lib/transcript";
 import { matchOption } from "@/lib/options";
-import { Pacer, estimateSpeechMs, type PacedItem } from "./pacer";
+import { Pacer, estimateSpeechMs, readingPauseMs, visibleChars, type PacedItem } from "./pacer";
 import { clipText, reconnectDelay } from "./liveProtocol";
 
 export interface StartOptions {
@@ -66,13 +66,21 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
   const [writingId, setWritingId] = useState<string | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [offer, setOffer] = useState<Offer | null>(null);
+  /** The lesson is holding for the student: after a @wait until they say go on, or while they read what a @continue turn wrote. */
+  const [hold, setHold] = useState<"wait" | "reading" | null>(null);
   const ws = useRef<WebSocket | null>(null);
   const writeTimer = useRef<number | null>(null);
   const pacer = useRef<Pacer | null>(null);
   /** Spoken lines of the current turn that reached the student. */
   const heard = useRef(0);
-  /** Pending auto-continue after a @continue turn has been heard. */
+  /** Pending auto-continue after a @continue turn has been heard and read. */
   const autoTimer = useRef<number | null>(null);
+  /** When that timer fires, and how much of it was left when the student paused. */
+  const autoDue = useRef(0);
+  const autoLeft = useRef(0);
+  const pausedRef = useRef(false);
+  /** What the current turn put on the board, to size the reading pause after it. */
+  const load = useRef({ chars: 0, visuals: 0 });
   /** The start for this lesson, kept to resend if the connection drops before the server confirms it. */
   const startMsg = useRef<ClientMessage | null>(null);
   /** The start has gone out at least once: a resend is a reconnect, so it is quiet. */
@@ -89,33 +97,70 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
   /** Another tab owns the lesson, or this one is gone: never reconnect. */
   const stopped = useRef(false);
 
-  const land = useCallback((item: PacedItem) => {
-    if (item.kind === "turn") {
-      if (item.state === "thinking") heard.current = 0;
-      setTurn(item.state);
-      setOptions(item.state === "waiting" ? (item.options ?? []) : []);
-      if (item.state === "waiting" && item.auto) {
-        // The tutor is not waiting for an answer: once the narration has played, keep going.
-        if (autoTimer.current) window.clearTimeout(autoTimer.current);
-        autoTimer.current = window.setTimeout(() => {
-          autoTimer.current = null;
-          if (ws.current?.readyState === WebSocket.OPEN && !syncing.current) ws.current.send(JSON.stringify({ type: "continue" }));
-        }, 600);
-      }
-      return;
-    }
-    const e = item.event;
-    if (e.type === "say") heard.current += 1;
-    setState((s) => applyEvent(s, e));
-    const entry = entryFromEvent(e);
-    if (entry) setTranscript((t) => pushEntry(t, entry));
-    if (e.type === "block.append" || (e.type === "block.add" && e.block.type === "html")) {
-      const id = e.type === "block.append" ? e.id : e.block.id;
-      setWritingId(id);
-      if (writeTimer.current) window.clearTimeout(writeTimer.current);
-      writeTimer.current = window.setTimeout(() => setWritingId(null), 700);
-    }
+  const clearAuto = useCallback(() => {
+    if (autoTimer.current) window.clearTimeout(autoTimer.current);
+    autoTimer.current = null;
+    autoLeft.current = 0;
   }, []);
+  const sendContinue = useCallback(() => {
+    if (ws.current?.readyState === WebSocket.OPEN && !syncing.current) ws.current.send(JSON.stringify({ type: "continue" } satisfies ClientMessage));
+  }, []);
+  /** Carry on after `ms`, unless the student moves first. While paused the time is kept, not spent. */
+  const armAuto = useCallback(
+    (ms: number) => {
+      clearAuto();
+      if (pausedRef.current) {
+        autoLeft.current = ms;
+        return;
+      }
+      autoDue.current = performance.now() + ms;
+      autoTimer.current = window.setTimeout(() => {
+        autoTimer.current = null;
+        setHold(null);
+        sendContinue();
+      }, ms);
+    },
+    [clearAuto, sendContinue],
+  );
+
+  const land = useCallback(
+    (item: PacedItem) => {
+      if (item.kind === "turn") {
+        if (item.state === "thinking") {
+          heard.current = 0;
+          load.current = { chars: 0, visuals: 0 };
+        }
+        setTurn(item.state);
+        setOptions(item.state === "waiting" ? (item.options ?? []) : []);
+        if (item.state === "waiting" && item.wait) {
+          // The tutor stopped for a look: nothing happens until the student says go on.
+          setHold("wait");
+        } else if (item.state === "waiting" && item.auto) {
+          // The tutor is not waiting for an answer: once the board has been read, keep going.
+          setHold("reading");
+          armAuto(readingPauseMs(load.current));
+        } else setHold(null);
+        return;
+      }
+      const e = item.event;
+      if (e.type === "say") heard.current += 1;
+      else if (e.type === "block.append") load.current.chars += visibleChars(e.html);
+      else if (e.type === "block.add") {
+        if (e.block.type === "html") load.current.chars += visibleChars(e.block.html);
+        else if (e.block.type !== "annotation") load.current.visuals += 1;
+      }
+      setState((s) => applyEvent(s, e));
+      const entry = entryFromEvent(e);
+      if (entry) setTranscript((t) => pushEntry(t, entry));
+      if (e.type === "block.append" || (e.type === "block.add" && e.block.type === "html")) {
+        const id = e.type === "block.append" ? e.id : e.block.id;
+        setWritingId(id);
+        if (writeTimer.current) window.clearTimeout(writeTimer.current);
+        writeTimer.current = window.setTimeout(() => setWritingId(null), 700);
+      }
+    },
+    [armAuto],
+  );
 
   const getPacer = useCallback(() => {
     if (!pacer.current) {
@@ -178,8 +223,7 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
         if (ws.current !== sock) return;
         ws.current = null;
         syncing.current = false;
-        if (autoTimer.current) window.clearTimeout(autoTimer.current);
-        autoTimer.current = null;
+        clearAuto();
         if (!alive || stopped.current) return;
         setStatus(everOpened ? "reconnecting" : "connecting");
         retry = window.setTimeout(connect, reconnectDelay(attempt++));
@@ -217,6 +261,8 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
             getPacer().discard();
             gated.current = false;
             heard.current = 0;
+            clearAuto();
+            setHold(null);
             let board = emptyBoard();
             let list: TranscriptEntry[] = [];
             for (const row of m.log) {
@@ -247,7 +293,7 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
               // A new turn: the student spoke, so whatever was still pending lands now.
               getPacer().flush();
               land({ kind: "turn", state: m.state });
-            } else getPacer().push({ kind: "turn", state: m.state, options: m.options, auto: m.auto });
+            } else getPacer().push({ kind: "turn", state: m.state, options: m.options, auto: m.auto, wait: m.wait });
             break;
           case "offer":
             // One question at a time: a newer offer replaces an unanswered one.
@@ -258,11 +304,11 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
               // The lesson moved to another tab. Go quiet and stay disconnected.
               stopped.current = true;
               getPacer().discard();
-              if (autoTimer.current) window.clearTimeout(autoTimer.current);
-              autoTimer.current = null;
+              clearAuto();
               outbox.current = [];
               setStatus("superseded");
               setTurn("idle");
+              setHold(null);
               setOffer(null);
               setError("This lesson is open in another tab.");
               sock.close();
@@ -282,11 +328,10 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
       const sock = ws.current;
       ws.current = null;
       sock?.close();
-      if (autoTimer.current) window.clearTimeout(autoTimer.current);
-      autoTimer.current = null;
+      clearAuto();
       if (writeTimer.current) window.clearTimeout(writeTimer.current);
     };
-  }, [getPacer, land, flushOutbox]);
+  }, [getPacer, land, flushOutbox, clearAuto]);
 
   const start = useCallback(
     (opts: StartOptions) => {
@@ -324,8 +369,10 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
   const say = useCallback((text: string) => {
     const t = clipText(matchOption(text, optionsRef.current) ?? text, MAX_USER_TEXT);
     if (!t || stopped.current) return;
-    if (autoTimer.current) window.clearTimeout(autoTimer.current);
-    autoTimer.current = null;
+    clearAuto();
+    setHold(null);
+    // Speaking or typing ends a pause: the pacer and the voice drop theirs below, so this follows.
+    pausedRef.current = false;
     pacer.current?.flush();
     setTranscript((list) => [...list, { kind: "user", text: t }]);
     setOptions([]);
@@ -333,7 +380,7 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
     const sock = ws.current;
     if (sock?.readyState === WebSocket.OPEN && !syncing.current) sock.send(JSON.stringify({ type: "user", text: t } satisfies ClientMessage));
     else outbox.current.push(t);
-  }, []);
+  }, [clearAuto]);
 
   /** Switch the tutor's model from the next turn on. */
   const setModel = useCallback((model: string) => send({ type: "model", model }), [send]);
@@ -345,14 +392,35 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
    * start the next queued line.
    */
   const interrupt = useCallback(() => {
-    if (autoTimer.current) window.clearTimeout(autoTimer.current);
-    autoTimer.current = null;
+    clearAuto();
+    setHold(null);
+    pausedRef.current = false;
     pacer.current?.discard();
     gated.current = true;
     setTurn("waiting");
     setOptions([]);
     send({ type: "interrupt", heard: heard.current });
-  }, [send]);
+  }, [send, clearAuto]);
+
+  /** The student is ready: end a @wait, or skip the rest of a reading pause. */
+  const goOn = useCallback(() => {
+    clearAuto();
+    setHold(null);
+    sendContinue();
+  }, [clearAuto, sendContinue]);
+
+  /**
+   * The student asked for a pause or a slower pace while the tutor was
+   * talking. The caller has held the lesson; the server is told, so later
+   * turns know, without the turn being cut off.
+   */
+  const pace = useCallback(
+    (text: string, slow: boolean) => {
+      setTranscript((list) => [...list, { kind: "user", text }]);
+      send({ type: "pace", slow, text });
+    },
+    [send],
+  );
 
   /** Answer the tutor's offer and put the card away. */
   const answerOffer = useCallback(
@@ -363,13 +431,29 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
     [offer, send],
   );
 
-  /** Hold the board where it is; the caller pauses the voice. */
-  const pause = useCallback(() => getPacer().pause(), [getPacer]);
-  const resume = useCallback(() => getPacer().resume(), [getPacer]);
+  /** Hold the board where it is; the caller pauses the voice. A reading pause keeps the time it had left. */
+  const pause = useCallback(() => {
+    pausedRef.current = true;
+    getPacer().pause();
+    if (autoTimer.current) {
+      autoLeft.current = Math.max(0, autoDue.current - performance.now());
+      window.clearTimeout(autoTimer.current);
+      autoTimer.current = null;
+    }
+  }, [getPacer]);
+  const resume = useCallback(() => {
+    pausedRef.current = false;
+    getPacer().resume();
+    if (autoLeft.current > 0) {
+      const ms = autoLeft.current;
+      autoLeft.current = 0;
+      armAuto(ms);
+    }
+  }, [getPacer, armAuto]);
   /** Hold the lesson back without it counting as a pause (until sound is allowed). */
-  const hold = useCallback((on: boolean) => getPacer().hold(on), [getPacer]);
+  const holdBack = useCallback((on: boolean) => getPacer().hold(on), [getPacer]);
 
   const connected = status === "open";
   const superseded = status === "superseded";
-  return { state, turn, options, transcript, connected, status, superseded, error, info, writingId, usage, offer, start, say, interrupt, answerOffer, setModel, pause, resume, hold };
+  return { state, turn, options, transcript, connected, status, superseded, error, info, writingId, usage, offer, hold, start, say, interrupt, answerOffer, setModel, pause, resume, holdBack, goOn, pace };
 }

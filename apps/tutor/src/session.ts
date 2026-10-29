@@ -12,7 +12,7 @@ import {
 import { createBrain, type Brain, type TurnResult } from "./brain";
 import type { ImageBackend } from "./images";
 import type { Store } from "./store";
-import { LessonEventSchema, LessonPlanSchema, htmlToText, plainSpeech } from "@openstudy/shared";
+import { LessonEventSchema, LessonPlanSchema, htmlToText, paceRequest, plainSpeech } from "@openstudy/shared";
 import { intakeMessage, tutorSystemPrompt } from "./prompts";
 import { planLesson, planForTutor } from "./planner";
 import { getFigure } from "./figures";
@@ -85,7 +85,12 @@ export class Session {
   private offer: { id: string; name: string; concept: string } | null = null;
   /** Turns in a row the tutor kept going without asking anything. */
   private autoRun = 0;
-  private awaitingContinue = false;
+  /** The turn ended with @continue (auto) or @wait; the client says when to go on. */
+  private awaiting: "auto" | "wait" | null = null;
+  /** The student asked for a slower lesson; every turn is reminded until they ask for normal speed. */
+  private pace: "slow" | null = null;
+  /** The slow-down was just asked for: the next turn acknowledges it out loud. */
+  private paceFresh = false;
   private pendingModel: string | null = null;
   readonly meter = new UsageMeter();
   private sources: string[] = [];
@@ -207,9 +212,13 @@ export class Session {
 
   async user(text: string) {
     if (this.closed) return;
-    this.awaitingContinue = false;
-    this.autoRun = 0;
+    this.awaiting = null;
     this.store.append(this.id, { kind: "user", text });
+    // "Slow down" is kept for the rest of the lesson, not just answered once. It is
+    // not a check on their understanding either, so the run of unchecked turns goes on.
+    const pace = paceRequest(text);
+    if (pace) this.setPace(pace === "slow");
+    else this.autoRun = 0;
     if (this.turnRunning) {
       // Student spoke over the tutor: stop, keep what they heard, answer when the turn has wound down.
       this.queue(text);
@@ -223,6 +232,26 @@ export class Session {
       return;
     }
     await this.respond(text);
+  }
+
+  /**
+   * The student asked for a different pace. From the client while the tutor was
+   * talking (the lesson is paused there, so the turn is left alone), or from a
+   * line they typed. The next turn, and every one after while it is slow, is told.
+   */
+  setPace(slow: boolean, text?: string) {
+    if (this.closed) return;
+    if (text) this.store.append(this.id, { kind: "user", text });
+    if (slow && this.pace !== "slow") this.paceFresh = true;
+    this.pace = slow ? "slow" : null;
+    this.out({ type: "debug", text: `pace: ${slow ? "slow" : "normal"}` });
+  }
+
+  /** Told at the top of every turn while the student wants it slower, so the model cannot drift back. */
+  private paceNote(): string {
+    const fresh = this.paceFresh;
+    this.paceFresh = false;
+    return `[Pace: the student asked you to slow down.${fresh ? " Open with one short spoken line saying you will go slower." : ""} One idea per turn: one or two spoken lines and one block or one diagram. End every turn with @wait or @ask, never @continue, until they ask for normal speed.]`;
   }
 
   private queue(text: string) {
@@ -284,7 +313,7 @@ export class Session {
   interrupt(heard?: number) {
     if (this.closed) return;
     if (heard !== undefined) this.heard = heard;
-    this.awaitingContinue = false;
+    this.awaiting = null;
     if (this.turnRunning) {
       this.abort?.abort(); // runTurn's aborted path rolls back and reports the turn state
       return;
@@ -336,6 +365,7 @@ export class Session {
       `[The student interrupted you. ${said ? `They heard up to: "${said.slice(-300)}".` : "They heard nothing of your last turn."}`,
       kept.length ? `Still on the board from that turn: ${kept.join("; ")}. Do not draw or write these again; point at them with @annotate.` : "",
       gone.length ? `Taken off the board, never seen: ${gone.join(", ")}. Re-add them later only if they still matter.` : changed ? "What you wrote after that was taken off the board; re-add it later if it still matters." : "Keep what is on the board.",
+      changed ? "Answer them first; then pick the step up again from the last line they heard, one piece at a time, so nothing they missed is skipped." : "",
     ]
       .filter(Boolean)
       .join(" ")
@@ -386,12 +416,13 @@ export class Session {
     }
   }
 
-  private setState(s: TurnState, options?: string[], auto = false) {
+  private setState(s: TurnState, options?: string[], hold?: "auto" | "wait") {
     if (s === "thinking" && this.state === "thinking") return; // already said so
     this.state = s;
     const m: ServerMessage = { type: "turn", state: s };
     if (options) m.options = options;
-    if (auto) m.auto = true;
+    if (hold === "auto") m.auto = true;
+    if (hold === "wait") m.wait = true;
     this.out(m);
   }
 
@@ -415,17 +446,23 @@ export class Session {
     this.out({ type: "debug", text: `model switched to ${model}` });
   }
 
-  /** The client reports the @continue narration has played: keep teaching. */
+  /**
+   * The client reports the student is ready for the next step: a @continue
+   * turn's narration has played and the board has been read, or they pressed
+   * Go on after a @wait.
+   */
   async continue() {
-    if (this.closed || !this.awaitingContinue || this.state !== "waiting" || this.turnRunning) return;
-    this.awaitingContinue = false;
+    if (this.closed || !this.awaiting || this.state !== "waiting" || this.turnRunning) return;
+    const why = this.awaiting;
+    this.awaiting = null;
     this.autoRun += 1;
     const checkIn = this.checkInDue || this.autoRun >= 3;
     this.checkInDue = false;
     const nudge = checkIn
       ? " Before teaching anything new, check in on the step you just covered: one short spoken line that names it and asks whether it made sense or whether to go through it slower, then @ask. Write nothing new on the board this turn."
       : "";
-    await this.runTurn(this.withLatePlan(`[The student is listening. Carry on with the next step.${nudge}]`));
+    const lead = why === "wait" ? "[The student has looked at the board and says go on." : "[The student is listening.";
+    await this.runTurn(this.withLatePlan(`${lead} Carry on with the next step.${nudge}]`));
   }
 
   private emit(e: LessonEvent) {
@@ -654,8 +691,9 @@ export class Session {
       prompt = `${this.interruptNote}\n\n${prompt}`;
       this.interruptNote = null;
     }
+    if (this.pace === "slow") prompt = `${this.paceNote()}\n\n${prompt}`;
     this.setState("thinking");
-    let ended: "ask" | "continue" | "done" | null = null;
+    let ended: "ask" | "continue" | "wait" | "done" | null = null;
     let options: string[] | undefined;
     const parser = new ProtocolParser(
       {
@@ -665,6 +703,7 @@ export class Session {
             ended = "ask";
             options = s.options;
           } else if (s.type === "continue") ended = "continue";
+          else if (s.type === "wait") ended = "wait";
           else if (s.type === "done") ended = "done";
           else if (s.type === "figure") this.placeFigure(s);
           else if (s.type === "page") this.placePage(s);
@@ -733,9 +772,9 @@ export class Session {
       await this.runTurn(this.withLatePlan(next));
       return;
     }
-    if (ended === "continue") {
-      this.awaitingContinue = true;
-      this.setState("waiting", undefined, true);
+    if (ended === "continue" || ended === "wait") {
+      this.awaiting = ended === "wait" ? "wait" : "auto";
+      this.setState("waiting", undefined, this.awaiting);
       return;
     }
     this.autoRun = 0;

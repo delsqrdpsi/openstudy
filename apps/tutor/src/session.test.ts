@@ -190,6 +190,49 @@ describe("session", () => {
     expect(turns().at(-1)!.prompt).toContain("check in on the step you just covered");
   });
 
+  it("holds a @wait turn for the student and goes on when they say so", async () => {
+    const { s, msgs } = await teaching();
+    process.env.FAKE_BODY = "@say Take a look.\n@html id=b3 col=0\nthird\n@end\n@wait\n";
+    await s.user("go on");
+    expect(msgs.at(-1)).toEqual({ type: "turn", state: "waiting", wait: true });
+    process.env.FAKE_BODY = "@say Next.\n@continue\n";
+    await s.continue();
+    expect(turns().at(-1)!.prompt).toContain("looked at the board");
+    expect(msgs.at(-1)).toEqual({ type: "turn", state: "waiting", auto: true });
+    // A go-on with nothing pending starts nothing.
+    process.env.FAKE_BODY = "@say Done.\n@ask\n";
+    await s.continue();
+    const n = turns().length;
+    await s.continue();
+    expect(turns().length).toBe(n);
+  });
+
+  it("keeps a slow-down request in every later turn until the student asks for normal speed", async () => {
+    const { s } = await teaching();
+    await s.user("slow down please");
+    expect(turns().at(-1)!.prompt).toContain("asked you to slow down");
+    expect(turns().at(-1)!.prompt).toContain("saying you will go slower");
+    await s.user("what is a reward?");
+    expect(turns().at(-1)!.prompt).toContain("asked you to slow down");
+    expect(turns().at(-1)!.prompt).not.toContain("saying you will go slower");
+    await s.user("ok normal speed now");
+    expect(turns().at(-1)!.prompt).not.toContain("asked you to slow down");
+  });
+
+  it("takes a pace message from the client without stopping the turn that is playing", async () => {
+    const { s, msgs } = await teaching();
+    process.env.FAKE_LINE_MS = "60";
+    process.env.FAKE_BODY = "@say three\n@html id=b3 col=0\nthird\n@end\n@say four\n@html id=b4 col=0\nfourth\n@end\n@continue\n";
+    const running = s.user("go on");
+    await sleep(100);
+    s.setPace(true, "slow down");
+    await running;
+    expect(s.board.blocks.map((b) => b.id)).toEqual(expect.arrayContaining(["b3", "b4"]));
+    expect(errors(msgs)).toEqual([]);
+    await s.continue();
+    expect(turns().at(-1)!.prompt).toContain("asked you to slow down");
+  });
+
   it("tells the next turn about an interruption and answers what the student said over it", async () => {
     const { s } = await teaching();
     process.env.FAKE_LINE_MS = "60";

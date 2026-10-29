@@ -57,7 +57,12 @@ architecture, and the order the pieces were built in.
    clicking the outline.
 6. **Wrap.** Summary block, two or three recap questions, board saved.
 
-The tutor prompt enforces the rhythm: explain, ask, listen, adapt, return.
+The tutor prompt enforces the rhythm: explain, let them look, ask, listen,
+adapt, return. After a picture, a diagram or a dense block the tutor stops
+(`@wait`) until the student says go on; between plain steps the client rests
+for as long as the board takes to read; "wait" holds the lesson where it is
+instead of cutting it off, and "slow down" puts the tutor into one idea per
+turn for the rest of the lesson.
 
 ### Interactive models (Anatomy)
 

@@ -33,6 +33,9 @@ interface Props {
   boardId?: string | null;
   /** Small cards above the input that must not block the lesson (sound prompt, the tutor's offers). */
   notices?: React.ReactNode;
+  /** The lesson is holding for the student: after a @wait until they go on, or while they read the board. */
+  hold?: "wait" | "reading" | null;
+  onGoOn?: () => void;
 }
 
 /**
@@ -40,7 +43,7 @@ interface Props {
  * keypoints bottom-right of the board, question options and the input bar
  * along the bottom. Shared by live lessons and fixture playback.
  */
-export function LessonShell({ title, state, turn, transcript, options = [], writingId, statusNote, onSay, onInterrupt, extraControls, inputControls, hearing, paused, caption, boardId, notices }: Props) {
+export function LessonShell({ title, state, turn, transcript, options = [], writingId, statusNote, onSay, onInterrupt, extraControls, inputControls, hearing, paused, caption, boardId, notices, hold, onGoOn }: Props) {
   const board = useRef<BoardHandle>(null);
   const [scale, setScale] = useState(1);
   const [follow, setFollow] = useState(true);
@@ -124,7 +127,7 @@ export function LessonShell({ title, state, turn, transcript, options = [], writ
     return () => window.removeEventListener("keydown", onKey);
   }, [choices.length]);
 
-  const turnLabel = turn === "thinking" ? "thinking" : turn === "speaking" ? "teaching" : turn === "waiting" ? "your turn" : turn === "done" ? "lesson complete" : "";
+  const turnLabel = turn === "thinking" ? "thinking" : turn === "speaking" ? "teaching" : turn === "waiting" ? (hold ? "take a look" : "your turn") : turn === "done" ? "lesson complete" : "";
   const lastTutor = [...transcript].reverse().find((e) => e.kind === "tutor");
   const currentSection = state.sections[state.sections.length - 1];
 
@@ -159,7 +162,17 @@ export function LessonShell({ title, state, turn, transcript, options = [], writ
         <span className={busy ? "ui-pulse" : "h-2 w-2 rounded-full bg-neutral-300"} aria-hidden />
         <input
           className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-neutral-400"
-          placeholder={paused ? "Paused. Type to ask something, or press play" : busy ? "Type to interrupt..." : choices.length ? "Your own answer, or the option's number" : "Your answer, or a question"}
+          placeholder={
+            paused
+              ? "Paused. Say \"go on\", or ask something"
+              : busy
+                ? "Type to interrupt, or \"wait\" to pause"
+                : choices.length
+                  ? "Your own answer, or the option's number"
+                  : hold
+                    ? "Say \"go on\" when you're ready, or ask something"
+                    : "Your answer, or a question"
+          }
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           aria-label="Message the tutor"
@@ -263,9 +276,18 @@ export function LessonShell({ title, state, turn, transcript, options = [], writ
               <p className="max-w-[760px] rounded-2xl bg-[rgba(246,247,244,0.85)] px-4 py-1.5 text-center text-[17px] leading-snug text-[var(--ink)] backdrop-blur-sm">{lastTutor.text.split(/(?<=[.?!])\s+/).slice(-2).join(" ")}</p>
             )
           )}
+          {/* The tutor stopped for a look, or the lesson is resting while the board is read: the student says when. */}
+          {hold && onGoOn && !paused && (
+            <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-[rgba(246,247,244,0.92)] py-1 pl-4 pr-1.5 text-[13px] text-neutral-600 shadow-sm backdrop-blur-sm">
+              <span>{hold === "wait" ? "Take a look. Say \"go on\" when you're ready." : "Take a look. Carrying on in a moment."}</span>
+              <button type="button" className="ui-btn primary px-3" onClick={onGoOn}>
+                Go on
+              </button>
+            </div>
+          )}
           {notices}
           {paused && (
-            <div className="pointer-events-auto rounded-full bg-[var(--ink)] px-4 py-1.5 text-[13px] font-medium text-white">Lesson paused. Press play to carry on.</div>
+            <div className="pointer-events-auto rounded-full bg-[var(--ink)] px-4 py-1.5 text-[13px] font-medium text-white">Paused. Press play, or say &quot;go on&quot;, to carry on.</div>
           )}
           <div className="flex w-full items-end justify-between gap-3">
             <div ref={controls} className="pointer-events-auto flex items-center gap-2">{extraControls}</div>
