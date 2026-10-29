@@ -1,6 +1,7 @@
 import type { LessonEvent } from "./events";
 import type { Block } from "./blocks";
 import { BlockSchema } from "./blocks";
+import { plainSpeech } from "./text";
 
 /**
  * The board protocol: a line-based text format the tutor model writes, parsed
@@ -133,8 +134,14 @@ export class ProtocolParser {
       this.mode.buf += line + "\n";
     } else if (line.trim()) {
       // Bare prose outside a block is treated as narration.
-      this.sink.event({ type: "say", text: line.trim() });
+      this.say(line);
     }
+  }
+
+  /** Spoken lines are plain words: the model sometimes carries board markup (<b>Actor</b>) into them. */
+  private say(text: string) {
+    const plain = plainSpeech(text);
+    if (plain) this.sink.event({ type: "say", text: plain });
   }
 
   private command(line: string) {
@@ -148,7 +155,7 @@ export class ProtocolParser {
         return;
       case "say":
         this.closeOpen();
-        if (rest.trim()) this.sink.event({ type: "say", text: rest.trim() });
+        this.say(rest);
         return;
       case "section":
         this.closeOpen();

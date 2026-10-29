@@ -1,4 +1,4 @@
-import type { LessonEvent } from "@openstudy/shared";
+import { plainSpeech, type LessonEvent } from "@openstudy/shared";
 
 /**
  * The chat-history panel shows what was said plus a one-line label for each
@@ -14,7 +14,8 @@ export type TranscriptEntry =
 export function entryFromEvent(e: LessonEvent): TranscriptEntry | null {
   switch (e.type) {
     case "say":
-      return { kind: "tutor", text: e.text };
+      // Lessons saved before speech was cleaned at parse time still carry board markup.
+      return { kind: "tutor", text: plainSpeech(e.text) };
     case "section":
       return { kind: "section", title: e.title };
     case "block.add": {

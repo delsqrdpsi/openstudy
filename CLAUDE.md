@@ -7,3 +7,7 @@
 
 ## Plan
 - The product plan lives in PLAN.md: decisions, lesson flow, architecture, build order.
+
+## Git
+- Name branches `fix/<short-description>` for fixes and `feat/<short-description>` for new features, in lowercase kebab-case.
+- Never use `claude/...` branch names, even when a session assigns one.

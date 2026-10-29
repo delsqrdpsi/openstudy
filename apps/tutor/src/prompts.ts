@@ -79,6 +79,7 @@ ${opts.builds ? '@build_figure name="<short-slug>" concept="<the real object and
 @done
 
 Rules:
+- @say lines are plain spoken words: no HTML tags, no markdown, no $math$. Bold and italics belong on the board.
 - Ids are snake_case, unique, descriptive (big_picture, bike_example, reward_table).
 - Columns: col 0 for intake and the plan, then one column per section: section 1 in col 1, section 2 in col 2, and so on up to col 7. Put a section's diagrams and pictures in the same column as its text.
 - html: use only <h1> <h2> <h3> <b> <i> <br> <ul> <ol> <li> <table> <tr> <th> <td>. Inline math as $...$, display math as $$...$$. A bare $ opens math, so write money as \\$120 or 120 dollars, never $120. No styles, no scripts, no links. Keep a block under 90 words; split a longer idea into more blocks rather than cutting it short. Use <br> for line breaks inside a block.
