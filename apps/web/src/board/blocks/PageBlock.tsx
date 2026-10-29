@@ -10,7 +10,7 @@ export function PageBlock({ block }: { block: PageBlockT }) {
     <div data-block-id={block.id} style={{ width: PAGE_W }}>
       <div className="wb-page" style={{ width: PAGE_W, height: h }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={block.src} alt={`${block.source}, page ${block.page}`} width={PAGE_W} height={h} draggable={false} style={{ display: "block", width: PAGE_W, height: h }} />
+        <img data-frame="" src={block.src} alt={`${block.source}, page ${block.page}`} width={PAGE_W} height={h} draggable={false} style={{ display: "block", width: PAGE_W, height: h }} />
       </div>
       <div className="wb-caption">
         {block.source} · p.{block.page}
