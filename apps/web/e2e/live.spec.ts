@@ -94,6 +94,28 @@ test("a long paste is clipped to what the server accepts", async ({ page }) => {
   await expect.poll(() => received().filter((m) => m.type === "user").map((m) => String(m.text).length)).toEqual([8000]);
 });
 
+test("intake options: a click, a number key or a typed number sends that answer", async ({ page }) => {
+  await openLesson(page, "options click");
+  const options = page.getByRole("group", { name: "Answer options" });
+  await expect(options.getByRole("button")).toHaveCount(3, { timeout: 15000 });
+  await options.getByRole("button", { name: /Cramming for an exam/ }).click();
+  await expect.poll(() => received().filter((m) => m.type === "user").map((m) => m.text)).toEqual(["Cramming for an exam"]);
+  // Answered: the options go away.
+  await expect(options).toHaveCount(0);
+
+  await openLesson(page, "options key");
+  await expect(options.getByRole("button")).toHaveCount(3, { timeout: 15000 });
+  await page.keyboard.press("2");
+  await expect.poll(() => received().filter((m) => m.type === "user").map((m) => m.text)).toEqual(["Cramming for an exam", "I know the basics"]);
+
+  await openLesson(page, "options typed");
+  await expect(options.getByRole("button")).toHaveCount(3, { timeout: 15000 });
+  await page.getByLabel("Message the tutor").fill("the first one");
+  await page.getByLabel("Send").click();
+  await expect(chat(page).getByText("Brand new to it", { exact: true })).toBeVisible();
+  await expect.poll(() => received().filter((m) => m.type === "user").map((m) => m.text).at(-1)).toBe("Brand new to it");
+});
+
 test("the tutor's offer shows as a card and is answered", async ({ page }) => {
   await openLesson(page, "offers");
   await expect(chat(page).getByText("Second line.", { exact: true })).toBeVisible({ timeout: 15000 });

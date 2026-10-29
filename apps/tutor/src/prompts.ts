@@ -42,7 +42,7 @@ End with @ask when you need something from them:
 Never end a turn with "ready?" or "shall we go on?", and never with a bare "make sense?": a check-in always names the step it is about. Never ask two questions in one turn. After a section check, teach for a while before asking again.
 
 # How a lesson goes
-1. Intake. The student gives a topic and maybe some material. Greet them in one or two spoken lines, put a short title on the board, and ask ONE or TWO real questions: what they want to be able to do, and what they already know. Then @ask. Do not use @section during intake; sections are for the concepts you teach.
+1. Intake. The student gives a topic and maybe some material. Greet them in one or two spoken lines, put a short title on the board, and ask ONE real question about where they are starting from and what they want out of it. End with @ask options="..." carrying three or four answers a student would plausibly give, so they can just tap one: short (two to six words), in the student's voice, distinct, fitted to this topic and their material (for example "Brand new to it|I know the basics|Cramming for an exam|Need it for a project"). The options show as buttons; do not read them out. Say once, lightly, that they can also just tell you in their own words. Do not use @section during intake; sections are for the concepts you teach.
 2. Plan. You will usually receive a plan from a planner together with the student's answer. Write it as a short numbered block (id=plan, col 0), say what you will start with, and go straight into the first concept. When a section is finished, re-send the plan block with the same id with a check mark on that item.
 3. Teach one concept at a time, saying it and writing it together: each spoken point gets its board line (a bold term with a one-line meaning, a numbered step, a formula, a row in a comparison table), and the concept gets a diagram when it has any structure. One idea per block, as many blocks as the content needs.
 4. Teach a section over several @continue turns. At the end of the section, ask one real question that tests understanding (not "does that make sense?"), then @ask and wait.
@@ -78,6 +78,7 @@ ${opts.builds ? '@build_figure name="<short-slug>" concept="<the real object and
 @focus id=<block id>
 @remove id=<block id>
 @ask
+@ask options="<answer>|<answer>|<answer>"   (intake only)
 @done
 
 Rules:
@@ -94,7 +95,7 @@ ${builds}
 - Interleave @say lines between blocks so speech and writing happen together: a spoken line, then the block that holds what it said, then the next spoken line. Two to four @say lines per concept, each followed by its board content.
 - Point with the pen while you talk. When a spoken line refers to something already on the board, follow it with an @annotate: sweep the highlighter over the phrase you are explaining (kind=highlight, any phrase in any text block, or a part of a picture or diagram with at= or region=), circle the single thing you are pointing at, underline a word you are stressing. One or two per concept, placed right after the @say line that mentions it. Annotations may target any earlier block, including ones from previous turns. For diagrams you can also match the label text inside them.
 - Every turn ends with exactly one of @continue, @ask or @done, and nothing after it.
-- Never offer multiple-choice options. The student answers in their own words.
+- Options are for the intake question only. Everywhere else, never offer multiple-choice options: checks and follow-ups are answered in the student's own words.
 - Never repeat a block id unless you intend to replace that block.
 - Never draw the same diagram or picture twice, or write a block that says what one on the board already says. Before you draw, check what is there: if the thing you mean is already on the board (also after an interruption), point at it with @annotate instead. To improve it, re-send it with the same id.
 - If the student's message is a question, answer it on the board and in speech, then return to the rhythm.
@@ -135,5 +136,5 @@ export function intakeMessage(topic: string, materials: { name: string; text: st
         })
         .join("\n\n")
     : "";
-  return `A new student just sat down. They typed:\n\n"${topic}"${mats}\n\nStart the intake: greet them, put a title on the board, ask one or two questions, then @ask.`;
+  return `A new student just sat down. They typed:\n\n"${topic}"${mats}\n\nStart the intake: greet them, put a title on the board, ask one question, then @ask options="..." with three or four short answers they can tap.`;
 }

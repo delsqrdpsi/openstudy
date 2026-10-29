@@ -206,6 +206,7 @@ export function LiveView() {
       state={live.state}
       turn={live.turn}
       transcript={live.transcript}
+      options={live.options}
       writingId={live.writingId}
       statusNote={note}
       onSay={say}

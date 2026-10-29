@@ -67,7 +67,7 @@ wss.on("connection", (ws) => {
       emit({ type: "say", text: "Hello there." });
       emit({ type: "block.add", block: { id: "intro", type: "html", column: 0, html: "<p>Intro</p>" } });
       emit({ type: "say", text: "Second line." });
-      send({ type: "turn", state: "waiting" });
+      send({ type: "turn", state: "waiting", options: m.topic.includes("options") ? ["Brand new to it", "I know the basics", "Cramming for an exam"] : undefined });
     } else if (m.type === "user") {
       boards[board].log.push({ kind: "user", text: m.text });
       save();

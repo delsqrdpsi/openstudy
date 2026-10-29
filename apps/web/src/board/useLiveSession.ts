@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MAX_USER_TEXT, ServerMessageSchema, applyEvent, emptyBoard, type BoardState, type ClientMessage, type TurnState, type Usage } from "@openstudy/shared";
 import { entryFromEvent, pushEntry, type TranscriptEntry } from "@/lib/transcript";
+import { matchOption } from "@/lib/options";
 import { Pacer, estimateSpeechMs, type PacedItem } from "./pacer";
 import { clipText, reconnectDelay } from "./liveProtocol";
 
@@ -53,6 +54,11 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
   const [state, setState] = useState<BoardState>(() => emptyBoard());
   const [turn, setTurn] = useState<TurnState>("idle");
   const [options, setOptions] = useState<string[]>([]);
+  /** The options on show, so a typed or spoken "the second one" picks it. */
+  const optionsRef = useRef<string[]>([]);
+  useEffect(() => {
+    optionsRef.current = options;
+  }, [options]);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [status, setStatus] = useState<LinkStatus>("connecting");
   const [error, setError] = useState<string | null>(null);
@@ -316,7 +322,7 @@ export function useLiveSession(opts: { speaker?: Speaker } = {}) {
   );
 
   const say = useCallback((text: string) => {
-    const t = clipText(text, MAX_USER_TEXT);
+    const t = clipText(matchOption(text, optionsRef.current) ?? text, MAX_USER_TEXT);
     if (!t || stopped.current) return;
     if (autoTimer.current) window.clearTimeout(autoTimer.current);
     autoTimer.current = null;
