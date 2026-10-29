@@ -266,7 +266,7 @@ On the web side, `apps/web/src/proxy.ts` puts a nonce-based
 Content-Security-Policy on every page: only Next's own scripts run, inline
 handlers and `javascript:` URLs never do, and frames may only come from the
 app itself or the tutor server. Board HTML and SVG are sanitised before they
-reach the page (`lib/sanitize.ts`, `lib/sketch.ts`); the policy is the net
+reach the page (`lib/html.ts`, `lib/sketch.ts`); the policy is the net
 under that. `e2e/csp.spec.ts` fails on any violation the browser reports.
 
 ## Scaling: what holds and what does not
