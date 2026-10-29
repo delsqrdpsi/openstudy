@@ -54,7 +54,10 @@ server's first lines say whether model builds are on.
 
 Type what you want to learn on the home page, or point it at a folder of
 slides and PDFs with "Look inside". The tutor asks a question or two, plans,
-and starts. Answer in the box at the bottom or turn the mic on. Scroll to
+and starts. Answer in the box at the bottom or turn the mic on. Say or type
+"wait" to hold the lesson where it is, "slow down" to have the tutor take
+smaller steps from then on, and "go on" when you are ready; the pause button
+(Shift+Space) and the speed control do the same by hand. Scroll to
 pan, ctrl or cmd plus scroll (or pinch) to zoom, drag on empty paper to pan,
 hold space to drag anywhere.
 
@@ -87,9 +90,14 @@ of Deepgram voice is under a dollar.
 
 ## How it is put together
 
+Diagrams and the rules that keep the code easy to grow are in
+[ARCHITECTURE.md](ARCHITECTURE.md).
+
 - The tutor writes a line protocol (`@say`, `@html ... @end`, `@svg`,
-  `@image`, `@annotate`, `@ask`) that streams straight onto the board.
-  See `packages/shared/src/protocol.ts`.
+  `@image`, `@annotate`, `@continue`, `@wait`, `@ask`) that streams straight
+  onto the board. See `packages/shared/src/protocol.ts`. After a picture, a
+  diagram or a dense block the tutor stops (`@wait`) until you say go on;
+  between plain steps the page rests for as long as the board takes to read.
 - The board is a document of blocks laid out in columns by the client. The
   model never places pixels. Diagrams are redrawn in a hand-drawn style with
   rough.js; pictures come from an image API; annotations are measured from
@@ -132,7 +140,10 @@ of Deepgram voice is under a dollar.
   OpenStudy web app running here, so other websites you visit cannot drive a
   lesson, read your folders or spend your keys. It reads course material only
   under your home folder unless you set `SOURCES_ROOT`. See the network
-  section of `.env.example` to use a tablet on a trusted network.
+  section of `.env.example` to use a tablet on a trusted network. Everything
+  the model writes is treated as untrusted: board HTML and SVG are sanitised,
+  and every page carries a nonce-based Content-Security-Policy, so a
+  sanitiser gap still cannot run script.
 
 ## Checks
 

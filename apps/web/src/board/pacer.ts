@@ -9,7 +9,7 @@ import type { LessonEvent, TurnState } from "@openstudy/shared";
  * (fast enough to finish with it), diagrams and marks land as soon as the
  * line they belong to starts, and "your turn" waits for the voice to stop.
  */
-export type PacedItem = { kind: "event"; event: LessonEvent } | { kind: "turn"; state: TurnState; options?: string[]; auto?: boolean };
+export type PacedItem = { kind: "event"; event: LessonEvent } | { kind: "turn"; state: TurnState; options?: string[]; auto?: boolean; wait?: boolean };
 
 export interface PacerHooks {
   /** Land an item on the board (state, transcript, caret). */
@@ -279,4 +279,27 @@ export function visibleChars(html: string): number {
 export function estimateSpeechMs(text: string, rate = 1): number {
   const words = text.trim().split(/\s+/).filter(Boolean).length;
   return (words * 60000) / (170 * Math.max(0.5, rate)) + 250;
+}
+
+/** A breath after a @continue turn before the lesson carries on, even when nothing was written. */
+export const READ_BASE_MS = 800;
+/** Reading time per visible character the turn wrote, on top of the narration already heard. */
+export const READ_MS_PER_CHAR = 12;
+/** A look of its own for each diagram, picture, page or model. */
+export const READ_MS_PER_VISUAL = 2500;
+export const READ_MAX_MS = 10000;
+
+/** What a turn put on the board. */
+export interface TurnLoad {
+  chars: number;
+  visuals: number;
+}
+
+/**
+ * How long to rest after a @continue turn: the narration has been heard, but
+ * the board is what the student reads, and reading takes longer than
+ * listening. The student can always go on sooner.
+ */
+export function readingPauseMs(load: TurnLoad): number {
+  return Math.min(READ_MAX_MS, READ_BASE_MS + load.chars * READ_MS_PER_CHAR + load.visuals * READ_MS_PER_VISUAL);
 }

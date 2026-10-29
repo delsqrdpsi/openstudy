@@ -110,7 +110,8 @@ describe("CodexBrain", () => {
     brain = new CodexBrain("gpt-test", null, FAKE);
     const { result } = await turn(brain);
     expect(result.status).toBe("ok");
-    expect(requests().find((r) => r.id === "srv-1")?.result).toEqual({ answers: {} });
+    // The answer goes to the fake over stdin; it may land in its log a moment after the turn ends.
+    await expect.poll(() => requests().find((r) => r.id === "srv-1")?.result, { timeout: 2000 }).toEqual({ answers: {} });
   });
 
   it("says how to install the CLI when it is missing", async () => {

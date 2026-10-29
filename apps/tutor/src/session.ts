@@ -12,7 +12,7 @@ import {
 import { createBrain, type Brain, type TurnResult } from "./brain";
 import type { ImageBackend } from "./images";
 import type { Store } from "./store";
-import { LessonEventSchema, LessonPlanSchema } from "@openstudy/shared";
+import { LessonEventSchema, LessonPlanSchema, htmlToText, paceRequest, plainSpeech } from "@openstudy/shared";
 import { intakeMessage, tutorSystemPrompt } from "./prompts";
 import { planLesson, planForTutor } from "./planner";
 import { getFigure } from "./figures";
@@ -56,8 +56,10 @@ export class Session {
   private cancelPending = false;
   private spoken: string[] = [];
   /** Words said and written this turn, and diagrams drawn, so a thin board gets called out next turn. */
-  private turnWords = { said: 0, wrote: 0, diagrams: 0 };
+  private turnWords = { said: 0, wrote: 0, diagrams: 0, math: 0 };
   private boardNudge: string | null = null;
+  /** The last turn was hard going (math, or far more written than said): check in before teaching more. */
+  private checkInDue = false;
   /** What the student said while the tutor could not take it yet; answered next. */
   private queued: string | null = null;
   /** The board when the current (or last) turn began, and what happened to it since. */
@@ -83,10 +85,17 @@ export class Session {
   private offer: { id: string; name: string; concept: string } | null = null;
   /** Turns in a row the tutor kept going without asking anything. */
   private autoRun = 0;
-  private awaitingContinue = false;
+  /** The turn ended with @continue (auto) or @wait; the client says when to go on. */
+  private awaiting: "auto" | "wait" | null = null;
+  /** The student asked for a slower lesson; every turn is reminded until they ask for normal speed. */
+  private pace: "slow" | null = null;
+  /** The slow-down was just asked for: the next turn acknowledges it out loud. */
+  private paceFresh = false;
   private pendingModel: string | null = null;
   readonly meter = new UsageMeter();
   private sources: string[] = [];
+  /** A diagram or picture the model drew again under a new id, mapped to the block already on the board. */
+  private aliases = new Map<string, string>();
   private figureBase = process.env.TUTOR_PUBLIC_URL ?? `http://localhost:${process.env.TUTOR_PORT ?? 8787}`;
   private readonly out: (m: ServerMessage) => void;
 
@@ -195,7 +204,7 @@ export class Session {
     if (opts.quiet || log.length === 0) return;
     // Greet the returning student and recap, the way a tutor would when you walk back in.
     const lastSaid = [...log].reverse().find((e) => e.kind === "event" && e.event.type === "say");
-    const heard = lastSaid && lastSaid.kind === "event" && lastSaid.event.type === "say" ? lastSaid.event.text : "";
+    const heard = lastSaid && lastSaid.kind === "event" && lastSaid.event.type === "say" ? plainSpeech(lastSaid.event.text) : "";
     await this.runTurn(
       `[The student just came back to this board after a break. The last thing you said was: "${heard.slice(0, 200)}". Greet them, recap where the lesson was in one or two spoken lines, ask if they are ready to pick up, then @ask. Do not add new board blocks in this turn.]`,
     );
@@ -203,9 +212,13 @@ export class Session {
 
   async user(text: string) {
     if (this.closed) return;
-    this.awaitingContinue = false;
-    this.autoRun = 0;
+    this.awaiting = null;
     this.store.append(this.id, { kind: "user", text });
+    // "Slow down" is kept for the rest of the lesson, not just answered once. It is
+    // not a check on their understanding either, so the run of unchecked turns goes on.
+    const pace = paceRequest(text);
+    if (pace) this.setPace(pace === "slow");
+    else this.autoRun = 0;
     if (this.turnRunning) {
       // Student spoke over the tutor: stop, keep what they heard, answer when the turn has wound down.
       this.queue(text);
@@ -219,6 +232,26 @@ export class Session {
       return;
     }
     await this.respond(text);
+  }
+
+  /**
+   * The student asked for a different pace. From the client while the tutor was
+   * talking (the lesson is paused there, so the turn is left alone), or from a
+   * line they typed. The next turn, and every one after while it is slow, is told.
+   */
+  setPace(slow: boolean, text?: string) {
+    if (this.closed) return;
+    if (text) this.store.append(this.id, { kind: "user", text });
+    if (slow && this.pace !== "slow") this.paceFresh = true;
+    this.pace = slow ? "slow" : null;
+    this.out({ type: "debug", text: `pace: ${slow ? "slow" : "normal"}` });
+  }
+
+  /** Told at the top of every turn while the student wants it slower, so the model cannot drift back. */
+  private paceNote(): string {
+    const fresh = this.paceFresh;
+    this.paceFresh = false;
+    return `[Pace: the student asked you to slow down.${fresh ? " Open with one short spoken line saying you will go slower." : ""} One idea per turn: one or two spoken lines and one block or one diagram. End every turn with @wait or @ask, never @continue, until they ask for normal speed.]`;
   }
 
   private queue(text: string) {
@@ -280,7 +313,7 @@ export class Session {
   interrupt(heard?: number) {
     if (this.closed) return;
     if (heard !== undefined) this.heard = heard;
-    this.awaitingContinue = false;
+    this.awaiting = null;
     if (this.turnRunning) {
       this.abort?.abort(); // runTurn's aborted path rolls back and reports the turn state
       return;
@@ -323,10 +356,20 @@ export class Session {
       }
     }
     const said = this.spoken.slice(0, h).join(" ");
+    // Name what stayed and what went, so the next turn points at what is there instead of drawing it again.
+    const added = [...new Set(this.turnEvents.flatMap((te) => (te.e.type === "block.add" && te.e.block.type !== "annotation" ? [te.e.block.id] : [])))];
+    const kept = added.filter((id) => want.has(id)).map((id) => describe(want.get(id)!));
+    const gone = added.filter((id) => !want.has(id));
     // The model is always told it was cut off, and where, so it does not carry on as if it had finished.
-    this.interruptNote = `[The student interrupted you. ${said ? `They heard up to: "${said.slice(-300)}".` : "They heard nothing of your last turn."} ${
-      changed ? "What you wrote after that was taken off the board; re-add it later if it still matters." : "Keep what is on the board."
-    }]`;
+    this.interruptNote = [
+      `[The student interrupted you. ${said ? `They heard up to: "${said.slice(-300)}".` : "They heard nothing of your last turn."}`,
+      kept.length ? `Still on the board from that turn: ${kept.join("; ")}. Do not draw or write these again; point at them with @annotate.` : "",
+      gone.length ? `Taken off the board, never seen: ${gone.join(", ")}. Re-add them later only if they still matter.` : changed ? "What you wrote after that was taken off the board; re-add it later if it still matters." : "Keep what is on the board.",
+      changed ? "Answer them first; then pick the step up again from the last line they heard, one piece at a time, so nothing they missed is skipped." : "",
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .concat("]");
   }
 
   /** The student answered a pending offer (building an interactive model). */
@@ -373,12 +416,13 @@ export class Session {
     }
   }
 
-  private setState(s: TurnState, options?: string[], auto = false) {
+  private setState(s: TurnState, options?: string[], hold?: "auto" | "wait") {
     if (s === "thinking" && this.state === "thinking") return; // already said so
     this.state = s;
     const m: ServerMessage = { type: "turn", state: s };
     if (options) m.options = options;
-    if (auto) m.auto = true;
+    if (hold === "auto") m.auto = true;
+    if (hold === "wait") m.wait = true;
     this.out(m);
   }
 
@@ -402,17 +446,32 @@ export class Session {
     this.out({ type: "debug", text: `model switched to ${model}` });
   }
 
-  /** The client reports the @continue narration has played: keep teaching. */
+  /**
+   * The client reports the student is ready for the next step: a @continue
+   * turn's narration has played and the board has been read, or they pressed
+   * Go on after a @wait.
+   */
   async continue() {
-    if (this.closed || !this.awaitingContinue || this.state !== "waiting" || this.turnRunning) return;
-    this.awaitingContinue = false;
+    if (this.closed || !this.awaiting || this.state !== "waiting" || this.turnRunning) return;
+    const why = this.awaiting;
+    this.awaiting = null;
     this.autoRun += 1;
-    const nudge = this.autoRun >= 4 ? " You have been talking for a while now; make the next step land with a real check question." : "";
-    await this.runTurn(this.withLatePlan(`[The student is listening. Carry on with the next step.${nudge}]`));
+    const checkIn = this.checkInDue || this.autoRun >= 3;
+    this.checkInDue = false;
+    const nudge = checkIn
+      ? " Before teaching anything new, check in on the step you just covered: one short spoken line that names it and asks whether it made sense or whether to go through it slower, then @ask. Write nothing new on the board this turn."
+      : "";
+    const lead = why === "wait" ? "[The student has looked at the board and says go on." : "[The student is listening.";
+    await this.runTurn(this.withLatePlan(`${lead} Carry on with the next step.${nudge}]`));
   }
 
   private emit(e: LessonEvent) {
     if (this.closed) return;
+    e = this.dedupe(e);
+    if (e.type === "block.add" && e.block.type === "image") {
+      const { id, prompt } = e.block;
+      if (this.board.blocks.some((b) => b.id === id && b.type === "image" && b.prompt === prompt)) return; // the same picture again
+    }
     if (e.type === "block.add" && e.block.type === "image" && !this.images) return; // pictures are off
     // Never store an event the client would reject: one bad id would blank the saved board on reload.
     const ok = LessonEventSchema.safeParse(e);
@@ -429,10 +488,35 @@ export class Session {
       if (this.state === "thinking") this.setState("speaking");
     }
     if (e.type === "say") this.turnWords.said += words(e.text);
-    else if (e.type === "block.append") this.turnWords.wrote += words(e.html.replace(/<[^>]+>/g, " "));
-    else if (e.type === "block.add" && e.block.type === "html") this.turnWords.wrote += words(e.block.html.replace(/<[^>]+>/g, " "));
-    else if (e.type === "block.add" && e.block.type === "svg") this.turnWords.diagrams += 1;
+    else if (e.type === "block.append") {
+      this.turnWords.wrote += words(htmlToText(e.html));
+      if (e.html.includes("$")) this.turnWords.math += 1;
+    } else if (e.type === "block.add" && e.block.type === "html") {
+      this.turnWords.wrote += words(htmlToText(e.block.html));
+      if (e.block.html.includes("$")) this.turnWords.math += 1;
+    }    else if (e.type === "block.add" && e.block.type === "svg") this.turnWords.diagrams += 1;
     if (e.type === "block.add" && e.block.type === "image") void this.resolveImage(e.block.id, e.block.prompt);
+  }
+
+  /**
+   * The model sometimes draws a diagram or picture it already drew, under a
+   * new id (after an interruption, or when it forgets). Same caption on a
+   * diagram, or same prompt on a picture, is the same thing: it replaces the
+   * one on the board in place, and later references to the new id go to it.
+   */
+  private dedupe(e: LessonEvent): LessonEvent {
+    const alias = (id: string) => this.aliases.get(id) ?? id;
+    if (e.type === "block.append" || e.type === "block.remove" || e.type === "focus" || e.type === "image.update") return { ...e, id: alias(e.id) };
+    if (e.type !== "block.add") return e;
+    const block = e.block;
+    if (block.type === "annotation") return { ...e, block: { ...block, target: alias(block.target) } };
+    if (this.aliases.has(block.id)) return { ...e, block: { ...block, id: alias(block.id) } as typeof block };
+    const key = sameness(block);
+    const twin = key ? this.board.blocks.find((b) => b.id !== block.id && b.type === block.type && sameness(b) === key) : undefined;
+    if (!twin) return e;
+    this.aliases.set(block.id, twin.id);
+    this.out({ type: "debug", text: `${block.id} is ${twin.id} drawn again; replaced in place` });
+    return { ...e, block: { ...block, id: twin.id, column: "column" in twin ? twin.column : block.column } as typeof block };
   }
 
   private async resolveImage(id: string, prompt: string) {
@@ -541,13 +625,23 @@ export class Session {
   }
 
   /**
-   * The board should carry what was said. When a teaching turn speaks far
-   * more than it writes, the next turn opens with the numbers so the model
-   * corrects course, instead of drifting into a lecture with a bare board.
+   * The board should carry what was said, and speech should explain what was
+   * written. When a teaching turn speaks far more than it writes, or writes
+   * far more than it says, the next turn opens with the numbers so the model
+   * corrects course, instead of a lecture with a bare board or a wall of
+   * formulas nobody walked through.
    */
   private checkBoardCoverage() {
-    const { said, wrote, diagrams } = this.turnWords;
-    if (said < 40 || !this.planDelivered) return; // intake and short replies are fine
+    const { said, wrote, diagrams, math } = this.turnWords;
+    if (!this.planDelivered) return; // the intake is fine
+    if (wrote >= 40 && wrote > said * 1.5) {
+      log.info(`board ahead of speech on ${this.id}: said ${said}, wrote ${wrote}`);
+      this.boardNudge = `[Board check on your last turn: you wrote ${wrote} words but said only ${said}. The student follows by listening, and writing you do not explain is lost on them. Say out loud every line you write: where each number comes from and what it means. Write a worked example one line at a time, each line in its own small block right after the spoken line that explains it.]`;
+      this.checkInDue = true;
+      return;
+    }
+    if (math && this.autoRun >= 1) this.checkInDue = true; // two math steps in a row without a pause
+    if (said < 40) return; // short replies are fine
     const thin = wrote < said * 0.6;
     if (!thin) return;
     log.info(`board thin on ${this.id}: said ${said}, wrote ${wrote}, diagrams ${diagrams}`);
@@ -584,7 +678,8 @@ export class Session {
     this.spoken = [];
     this.turnStart = this.board;
     this.turnEvents = [];
-    this.turnWords = { said: 0, wrote: 0, diagrams: 0 };
+    this.turnWords = { said: 0, wrote: 0, diagrams: 0, math: 0 };
+    this.checkInDue = false;
     this.heard = null;
     this.turns += 1;
     let prompt = userText;
@@ -596,8 +691,9 @@ export class Session {
       prompt = `${this.interruptNote}\n\n${prompt}`;
       this.interruptNote = null;
     }
+    if (this.pace === "slow") prompt = `${this.paceNote()}\n\n${prompt}`;
     this.setState("thinking");
-    let ended: "ask" | "continue" | "done" | null = null;
+    let ended: "ask" | "continue" | "wait" | "done" | null = null;
     let options: string[] | undefined;
     const parser = new ProtocolParser(
       {
@@ -607,6 +703,7 @@ export class Session {
             ended = "ask";
             options = s.options;
           } else if (s.type === "continue") ended = "continue";
+          else if (s.type === "wait") ended = "wait";
           else if (s.type === "done") ended = "done";
           else if (s.type === "figure") this.placeFigure(s);
           else if (s.type === "page") this.placePage(s);
@@ -675,9 +772,9 @@ export class Session {
       await this.runTurn(this.withLatePlan(next));
       return;
     }
-    if (ended === "continue") {
-      this.awaitingContinue = true;
-      this.setState("waiting", undefined, true);
+    if (ended === "continue" || ended === "wait") {
+      this.awaiting = ended === "wait" ? "wait" : "auto";
+      this.setState("waiting", undefined, this.awaiting);
       return;
     }
     this.autoRun = 0;
@@ -708,7 +805,7 @@ function intakeOf(log: ReturnType<Store["log"]>): { role: "tutor" | "student"; t
   const out: { role: "tutor" | "student"; text: string }[] = [];
   for (const row of log) {
     if (row.kind === "user") out.push({ role: "student", text: row.text });
-    else if (row.event.type === "say") out.push({ role: "tutor", text: row.event.text });
+    else if (row.event.type === "say") out.push({ role: "tutor", text: plainSpeech(row.event.text) });
   }
   return out.slice(-20);
 }
@@ -718,16 +815,31 @@ function boardSummary(board: BoardState): string {
   const lines = board.blocks.map((b) => {
     const col = "column" in b ? ` col ${b.column}` : "";
     let what = "";
-    if (b.type === "html") what = b.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 100);
+    if (b.type === "html") what = htmlToText(b.html).slice(0, 100);
     else if (b.type === "image") what = b.prompt.slice(0, 80);
     else if (b.type === "annotation") what = `${b.kind} on ${b.target}${b.match ? `: "${b.match.slice(0, 40)}"` : ""}`;
     else if (b.type === "page") what = `${b.source} page ${b.page}`;
     else if (b.type === "embed") what = b.title ?? "";
-    else if (b.type === "svg") what = "diagram";
+    else if (b.type === "svg") what = `diagram${b.caption ? `: ${b.caption}` : ""}`;
     return `- ${b.id} (${b.type}${col}) ${what}`;
   });
   const text = lines.join("\n");
   return text.length > 4000 ? "...\n" + text.slice(-4000) : text || "(empty)";
+}
+
+/** What makes two diagrams or two pictures the same one: the caption or the prompt, ignoring case and punctuation. */
+function sameness(b: BoardState["blocks"][number]): string | null {
+  const text = b.type === "svg" ? b.caption : b.type === "image" ? b.prompt : undefined;
+  const key = text?.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return key ? key : null;
+}
+
+/** A block as one short phrase for a note to the model. */
+function describe(b: BoardState["blocks"][number]): string {
+  if (b.type === "svg") return `${b.id} (diagram${b.caption ? ` "${b.caption}"` : ""})`;
+  if (b.type === "image") return `${b.id} (picture "${b.prompt.slice(0, 60)}")`;
+  if (b.type === "html") return `${b.id} ("${b.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 60)}")`;
+  return `${b.id} (${b.type})`;
 }
 
 function escapeHtml(s: string): string {
@@ -748,7 +860,7 @@ function transcriptOf(log: ReturnType<Store["log"]>): string {
   const lines: string[] = [];
   for (const row of log) {
     if (row.kind === "user") lines.push(`Student: ${row.text}`);
-    else if (row.event.type === "say") lines.push(`Tutor: ${row.event.text}`);
+    else if (row.event.type === "say") lines.push(`Tutor: ${plainSpeech(row.event.text)}`);
     else if (row.event.type === "section") lines.push(`[Section: ${row.event.title}]`);
   }
   const text = lines.join("\n");

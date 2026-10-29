@@ -41,8 +41,14 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     quiet: z.boolean().optional(),
   }),
   z.object({ type: z.literal("user"), text: z.string().min(1).max(MAX_USER_TEXT) }),
-  /** The narration of a @continue turn has finished playing; go on. */
+  /** The narration of a @continue turn has finished playing, or the student pressed Go on after a @wait. */
   z.object({ type: z.literal("continue") }),
+  /**
+   * The student asked for a different pace ("slow down", "wait") while the
+   * tutor was talking. Recorded without stopping the turn: the client has
+   * paused the lesson itself. `text` is what they said, for the transcript.
+   */
+  z.object({ type: z.literal("pace"), slow: z.boolean(), text: z.string().max(MAX_USER_TEXT).optional() }),
   /** Switch the tutor's model; takes effect from the next turn, same conversation. */
   z.object({ type: z.literal("model"), model: z.string().min(1).max(64) }),
   /**
@@ -109,8 +115,12 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
   /** Sent on resume, before anything else: the saved lesson so far. */
   z.object({ type: z.literal("history"), log: z.array(LogEntrySchema) }),
   z.object({ type: z.literal("event"), event: LessonEventSchema }),
-  /** auto: the tutor ended the turn with @continue; the client sends `continue` once the narration has played. */
-  z.object({ type: z.literal("turn"), state: TurnStateSchema, options: z.array(z.string()).optional(), auto: z.boolean().optional() }),
+  /**
+   * auto: the tutor ended the turn with @continue; the client sends `continue` once
+   * the narration has played and the board has been read. wait: the tutor ended it
+   * with @wait; the client shows "Go on" and sends `continue` when the student presses it.
+   */
+  z.object({ type: z.literal("turn"), state: TurnStateSchema, options: z.array(z.string()).optional(), auto: z.boolean().optional(), wait: z.boolean().optional() }),
   /**
    * code "superseded": this board was opened in another tab or window, which
    * now owns the lesson. The client must not reconnect on its own.

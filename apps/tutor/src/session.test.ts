@@ -143,6 +143,96 @@ describe("session", () => {
     expect(s.board.blocks.find((b) => b.id === "plan")).toMatchObject({ html: "v1\n" });
   });
 
+  it("replaces a diagram drawn again under a new id instead of adding a second one", async () => {
+    const { s, msgs } = await teaching();
+    const svg = '<svg viewBox="0 0 300 200"><rect x="10" y="10" width="80" height="40"/></svg>';
+    process.env.FAKE_BODY = `@say a\n@svg id=ac_loop col=1 caption="Actor-Critic inside the RL loop"\n${svg}\n@end\n@continue\n`;
+    await s.user("go on");
+    process.env.FAKE_BODY = `@say b\n@svg id=ac_loop_2 col=2 caption="Actor-critic inside the RL loop."\n${svg}\n@end\n@annotate id=ann_fb target=ac_loop_2 kind=circle at=center\n@continue\n`;
+    await s.user("go ahead");
+    expect(s.board.blocks.filter((b) => b.type === "svg").map((b) => b.id)).toEqual(["ac_loop"]);
+    expect(s.board.blocks.find((b) => b.id === "ac_loop")).toMatchObject({ column: 1 });
+    expect(s.board.blocks.find((b) => b.id === "ann_fb")).toMatchObject({ target: "ac_loop" });
+    expect(errors(msgs)).toEqual([]);
+  });
+
+  it("names what stayed on the board after an interruption so it is not drawn again", async () => {
+    const { s } = await teaching();
+    process.env.FAKE_BODY = '@say three\n@svg id=ac_loop col=1 caption="Actor-Critic loop"\n<svg viewBox="0 0 300 200"><rect x="1" y="1" width="9" height="9"/></svg>\n@end\n@say four\n@html id=b4 col=1\nfourth\n@end\n@continue\n';
+    await s.user("go on");
+    s.interrupt(1);
+    await s.user("ok go ahead");
+    const last = turns().at(-1)!;
+    expect(last.prompt).toContain('Still on the board from that turn: ac_loop (diagram "Actor-Critic loop")');
+    expect(last.prompt).toContain("Taken off the board, never seen: b4");
+  });
+
+  it("calls out a turn that wrote far more than it said, and checks in before going on", async () => {
+    const { s } = await teaching();
+    process.env.FAKE_BODY = `@say Step four.\n@html id=step4 col=1\n${"Critic predicted five, got minus one, new state worth seven. ".repeat(5)}\n@end\n@continue\n`;
+    await s.user("go on");
+    await s.continue();
+    const last = turns().at(-1)!;
+    expect(last.prompt).toContain("you wrote");
+    expect(last.prompt).toContain("Say out loud every line you write");
+    expect(last.prompt).toContain("check in on the step you just covered");
+  });
+
+  it("checks in after a few steps in a row, and not before", async () => {
+    const { s } = await teaching();
+    process.env.FAKE_BODY = "@say one two three four\n@html id=b9 col=1\none two three four\n@end\n@continue\n";
+    await s.user("go on");
+    for (let i = 0; i < 2; i++) {
+      await s.continue();
+      expect(turns().at(-1)!.prompt).not.toContain("check in");
+    }
+    await s.continue();
+    expect(turns().at(-1)!.prompt).toContain("check in on the step you just covered");
+  });
+
+  it("holds a @wait turn for the student and goes on when they say so", async () => {
+    const { s, msgs } = await teaching();
+    process.env.FAKE_BODY = "@say Take a look.\n@html id=b3 col=0\nthird\n@end\n@wait\n";
+    await s.user("go on");
+    expect(msgs.at(-1)).toEqual({ type: "turn", state: "waiting", wait: true });
+    process.env.FAKE_BODY = "@say Next.\n@continue\n";
+    await s.continue();
+    expect(turns().at(-1)!.prompt).toContain("looked at the board");
+    expect(msgs.at(-1)).toEqual({ type: "turn", state: "waiting", auto: true });
+    // A go-on with nothing pending starts nothing.
+    process.env.FAKE_BODY = "@say Done.\n@ask\n";
+    await s.continue();
+    const n = turns().length;
+    await s.continue();
+    expect(turns().length).toBe(n);
+  });
+
+  it("keeps a slow-down request in every later turn until the student asks for normal speed", async () => {
+    const { s } = await teaching();
+    await s.user("slow down please");
+    expect(turns().at(-1)!.prompt).toContain("asked you to slow down");
+    expect(turns().at(-1)!.prompt).toContain("saying you will go slower");
+    await s.user("what is a reward?");
+    expect(turns().at(-1)!.prompt).toContain("asked you to slow down");
+    expect(turns().at(-1)!.prompt).not.toContain("saying you will go slower");
+    await s.user("ok normal speed now");
+    expect(turns().at(-1)!.prompt).not.toContain("asked you to slow down");
+  });
+
+  it("takes a pace message from the client without stopping the turn that is playing", async () => {
+    const { s, msgs } = await teaching();
+    process.env.FAKE_LINE_MS = "60";
+    process.env.FAKE_BODY = "@say three\n@html id=b3 col=0\nthird\n@end\n@say four\n@html id=b4 col=0\nfourth\n@end\n@continue\n";
+    const running = s.user("go on");
+    await sleep(100);
+    s.setPace(true, "slow down");
+    await running;
+    expect(s.board.blocks.map((b) => b.id)).toEqual(expect.arrayContaining(["b3", "b4"]));
+    expect(errors(msgs)).toEqual([]);
+    await s.continue();
+    expect(turns().at(-1)!.prompt).toContain("asked you to slow down");
+  });
+
   it("tells the next turn about an interruption and answers what the student said over it", async () => {
     const { s } = await teaching();
     process.env.FAKE_LINE_MS = "60";

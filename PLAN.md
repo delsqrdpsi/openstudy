@@ -15,7 +15,11 @@ architecture, and the order the pieces were built in.
   Daughter faces, a pencil-and-scribble image loader, a chat-history panel
   with board actions inline, a keypoints tracker. No avatar bubble, no dot
   cloud, no cream paper.
-- The student always answers in their own words. No multiple choice.
+- The student answers checks in their own words. No multiple choice.
+- The intake question is the one exception: it comes with three or four
+  answers the student can tap, press the number of, or say ("the second
+  one"), so starting a lesson takes one click. Typing or saying their own
+  answer works just as well.
 - Highlighting is a highlighter: it can sweep any phrase in any text block
   and any region of a picture or diagram, timed to what the tutor is saying.
 
@@ -35,9 +39,9 @@ architecture, and the order the pieces were built in.
 ### Flow (how a lesson goes)
 
 1. **Intake.** A text box plus file drop (PDF, images, text, links). The
-   tutor reads what you gave it and asks, in voice and on the board, what you
-   want covered, how deep, and what you already know. Two or three turns,
-   conversational, not a form.
+   tutor reads what you gave it and asks, in voice and on the board, one
+   question about where you are starting from and what you want out of it,
+   with a few likely answers as buttons. Pick one, or type or say your own.
 2. **Plan.** Fable turns the intake into a lesson plan. The plan is shown as
    a short outline block at the top of the board so you can see where you are.
 3. **Teach a concept.** Text, diagram, picture, narration, in parallel.
@@ -53,7 +57,12 @@ architecture, and the order the pieces were built in.
    clicking the outline.
 6. **Wrap.** Summary block, two or three recap questions, board saved.
 
-The tutor prompt enforces the rhythm: explain, ask, listen, adapt, return.
+The tutor prompt enforces the rhythm: explain, let them look, ask, listen,
+adapt, return. After a picture, a diagram or a dense block the tutor stops
+(`@wait`) until the student says go on; between plain steps the client rests
+for as long as the board takes to read; "wait" holds the lesson where it is
+instead of cutting it off, and "slow down" puts the tutor into one idea per
+turn for the rest of the lesson.
 
 ### Interactive models (Anatomy)
 

@@ -1,6 +1,7 @@
 import type { LessonEvent } from "./events";
 import type { Block } from "./blocks";
 import { BlockSchema } from "./blocks";
+import { plainSpeech } from "./text";
 
 /**
  * The board protocol: a line-based text format the tutor model writes, parsed
@@ -26,7 +27,8 @@ import { BlockSchema } from "./blocks";
  *   @focus id=<id>
  *   @remove id=<id>
  *   @continue       end the turn but keep teaching once the narration has played
- *   @ask            end the turn and wait for the student
+ *   @wait           end the turn and let the student look; they say when to go on
+ *   @ask            end the turn and wait for the student's answer
  *   @ask options="first choice|second choice|third choice"
  *   @done           the lesson is finished
  */
@@ -35,6 +37,8 @@ import { BlockSchema } from "./blocks";
 export type ProtocolSignal =
   | { type: "ask"; options?: string[] }
   | { type: "continue" }
+  /** The tutor stops for the student to look at the board; nothing is asked of them. */
+  | { type: "wait" }
   | { type: "done" }
   | { type: "error"; message: string; line: string }
   /** The tutor wants a library figure on the board; the server resolves name to src. */
@@ -55,7 +59,7 @@ type Mode =
   | { kind: "svg"; id: string; column: number; caption?: string; buf: string; motion: boolean };
 
 /** Commands the parser knows. Inside a block, any other line starting with @ (a CSS @keyframes, an email) is content. */
-const COMMANDS = new Set(["end", "say", "section", "ask", "continue", "done", "html", "svg", "motion", "figure", "page", "build_figure", "image", "annotate", "focus", "remove"]);
+const COMMANDS = new Set(["end", "say", "section", "ask", "continue", "wait", "done", "html", "svg", "motion", "figure", "page", "build_figure", "image", "annotate", "focus", "remove"]);
 
 /** The snake_case form block ids are stored in; references to a block go through the same function. */
 export function slugId(id: string): string {
@@ -133,8 +137,14 @@ export class ProtocolParser {
       this.mode.buf += line + "\n";
     } else if (line.trim()) {
       // Bare prose outside a block is treated as narration.
-      this.sink.event({ type: "say", text: line.trim() });
+      this.say(line);
     }
+  }
+
+  /** Spoken lines are plain words: the model sometimes carries board markup (<b>Actor</b>) into them. */
+  private say(text: string) {
+    const plain = plainSpeech(text);
+    if (plain) this.sink.event({ type: "say", text: plain });
   }
 
   private command(line: string) {
@@ -148,7 +158,7 @@ export class ProtocolParser {
         return;
       case "say":
         this.closeOpen();
-        if (rest.trim()) this.sink.event({ type: "say", text: rest.trim() });
+        this.say(rest);
         return;
       case "section":
         this.closeOpen();
@@ -164,6 +174,10 @@ export class ProtocolParser {
       case "continue":
         this.closeOpen();
         this.sink.signal({ type: "continue" });
+        return;
+      case "wait":
+        this.closeOpen();
+        this.sink.signal({ type: "wait" });
         return;
       case "done":
         this.closeOpen();

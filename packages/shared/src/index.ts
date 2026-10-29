@@ -4,6 +4,8 @@ export * from "./board";
 export * from "./layout";
 export * from "./stream";
 export * from "./protocol";
+export * from "./text";
 export * from "./wire";
+export * from "./intent";
 export * from "./plan";
 export * from "./fixtures/rl101";

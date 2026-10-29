@@ -67,15 +67,26 @@ wss.on("connection", (ws) => {
       emit({ type: "say", text: "Hello there." });
       emit({ type: "block.add", block: { id: "intro", type: "html", column: 0, html: "<p>Intro</p>" } });
       emit({ type: "say", text: "Second line." });
-      send({ type: "turn", state: "waiting" });
+      send({ type: "turn", state: "waiting", options: m.topic.includes("options") ? ["Brand new to it", "I know the basics", "Cramming for an exam"] : undefined });
     } else if (m.type === "user") {
       boards[board].log.push({ kind: "user", text: m.text });
       save();
       send({ type: "turn", state: "thinking" });
+      if (m.text === "look") {
+        // A @wait turn: one line and a block, then the tutor holds for the student.
+        emit({ type: "say", text: "Take a look at this." });
+        emit({ type: "block.add", block: { id: "look1", type: "html", column: 0, html: "<p>Look block</p>" } });
+        send({ type: "turn", state: "waiting", wait: true });
+        return;
+      }
       for (let i = 1; i <= 6; i++) {
         emit({ type: "say", text: `Point ${i} is here and it is long enough to take a little while to say out loud.` });
         emit({ type: "block.add", block: { id: `b${i}`, type: "html", column: 0, html: `<p>Block ${i}</p>` } });
       }
+      send({ type: "turn", state: "waiting" });
+    } else if (m.type === "continue") {
+      send({ type: "turn", state: "thinking" });
+      emit({ type: "say", text: "Going on." });
       send({ type: "turn", state: "waiting" });
     } else if (m.type === "interrupt") {
       // Events already in flight when the interrupt lands, then the guaranteed answer.
