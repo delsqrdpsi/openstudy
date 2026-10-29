@@ -56,8 +56,10 @@ export class Session {
   private cancelPending = false;
   private spoken: string[] = [];
   /** Words said and written this turn, and diagrams drawn, so a thin board gets called out next turn. */
-  private turnWords = { said: 0, wrote: 0, diagrams: 0 };
+  private turnWords = { said: 0, wrote: 0, diagrams: 0, math: 0 };
   private boardNudge: string | null = null;
+  /** The last turn was hard going (math, or far more written than said): check in before teaching more. */
+  private checkInDue = false;
   /** What the student said while the tutor could not take it yet; answered next. */
   private queued: string | null = null;
   /** The board when the current (or last) turn began, and what happened to it since. */
@@ -87,6 +89,8 @@ export class Session {
   private pendingModel: string | null = null;
   readonly meter = new UsageMeter();
   private sources: string[] = [];
+  /** A diagram or picture the model drew again under a new id, mapped to the block already on the board. */
+  private aliases = new Map<string, string>();
   private figureBase = process.env.TUTOR_PUBLIC_URL ?? `http://localhost:${process.env.TUTOR_PORT ?? 8787}`;
   private readonly out: (m: ServerMessage) => void;
 
@@ -323,10 +327,19 @@ export class Session {
       }
     }
     const said = this.spoken.slice(0, h).join(" ");
+    // Name what stayed and what went, so the next turn points at what is there instead of drawing it again.
+    const added = [...new Set(this.turnEvents.flatMap((te) => (te.e.type === "block.add" && te.e.block.type !== "annotation" ? [te.e.block.id] : [])))];
+    const kept = added.filter((id) => want.has(id)).map((id) => describe(want.get(id)!));
+    const gone = added.filter((id) => !want.has(id));
     // The model is always told it was cut off, and where, so it does not carry on as if it had finished.
-    this.interruptNote = `[The student interrupted you. ${said ? `They heard up to: "${said.slice(-300)}".` : "They heard nothing of your last turn."} ${
-      changed ? "What you wrote after that was taken off the board; re-add it later if it still matters." : "Keep what is on the board."
-    }]`;
+    this.interruptNote = [
+      `[The student interrupted you. ${said ? `They heard up to: "${said.slice(-300)}".` : "They heard nothing of your last turn."}`,
+      kept.length ? `Still on the board from that turn: ${kept.join("; ")}. Do not draw or write these again; point at them with @annotate.` : "",
+      gone.length ? `Taken off the board, never seen: ${gone.join(", ")}. Re-add them later only if they still matter.` : changed ? "What you wrote after that was taken off the board; re-add it later if it still matters." : "Keep what is on the board.",
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .concat("]");
   }
 
   /** The student answered a pending offer (building an interactive model). */
@@ -407,12 +420,21 @@ export class Session {
     if (this.closed || !this.awaitingContinue || this.state !== "waiting" || this.turnRunning) return;
     this.awaitingContinue = false;
     this.autoRun += 1;
-    const nudge = this.autoRun >= 4 ? " You have been talking for a while now; make the next step land with a real check question." : "";
+    const checkIn = this.checkInDue || this.autoRun >= 3;
+    this.checkInDue = false;
+    const nudge = checkIn
+      ? " Before teaching anything new, check in on the step you just covered: one short spoken line that names it and asks whether it made sense or whether to go through it slower, then @ask. Write nothing new on the board this turn."
+      : "";
     await this.runTurn(this.withLatePlan(`[The student is listening. Carry on with the next step.${nudge}]`));
   }
 
   private emit(e: LessonEvent) {
     if (this.closed) return;
+    e = this.dedupe(e);
+    if (e.type === "block.add" && e.block.type === "image") {
+      const { id, prompt } = e.block;
+      if (this.board.blocks.some((b) => b.id === id && b.type === "image" && b.prompt === prompt)) return; // the same picture again
+    }
     if (e.type === "block.add" && e.block.type === "image" && !this.images) return; // pictures are off
     // Never store an event the client would reject: one bad id would blank the saved board on reload.
     const ok = LessonEventSchema.safeParse(e);
@@ -429,10 +451,35 @@ export class Session {
       if (this.state === "thinking") this.setState("speaking");
     }
     if (e.type === "say") this.turnWords.said += words(e.text);
-    else if (e.type === "block.append") this.turnWords.wrote += words(htmlToText(e.html));
-    else if (e.type === "block.add" && e.block.type === "html") this.turnWords.wrote += words(htmlToText(e.block.html));
-    else if (e.type === "block.add" && e.block.type === "svg") this.turnWords.diagrams += 1;
+    else if (e.type === "block.append") {
+      this.turnWords.wrote += words(htmlToText(e.html));
+      if (e.html.includes("$")) this.turnWords.math += 1;
+    } else if (e.type === "block.add" && e.block.type === "html") {
+      this.turnWords.wrote += words(htmlToText(e.block.html));
+      if (e.block.html.includes("$")) this.turnWords.math += 1;
+    }    else if (e.type === "block.add" && e.block.type === "svg") this.turnWords.diagrams += 1;
     if (e.type === "block.add" && e.block.type === "image") void this.resolveImage(e.block.id, e.block.prompt);
+  }
+
+  /**
+   * The model sometimes draws a diagram or picture it already drew, under a
+   * new id (after an interruption, or when it forgets). Same caption on a
+   * diagram, or same prompt on a picture, is the same thing: it replaces the
+   * one on the board in place, and later references to the new id go to it.
+   */
+  private dedupe(e: LessonEvent): LessonEvent {
+    const alias = (id: string) => this.aliases.get(id) ?? id;
+    if (e.type === "block.append" || e.type === "block.remove" || e.type === "focus" || e.type === "image.update") return { ...e, id: alias(e.id) };
+    if (e.type !== "block.add") return e;
+    const block = e.block;
+    if (block.type === "annotation") return { ...e, block: { ...block, target: alias(block.target) } };
+    if (this.aliases.has(block.id)) return { ...e, block: { ...block, id: alias(block.id) } as typeof block };
+    const key = sameness(block);
+    const twin = key ? this.board.blocks.find((b) => b.id !== block.id && b.type === block.type && sameness(b) === key) : undefined;
+    if (!twin) return e;
+    this.aliases.set(block.id, twin.id);
+    this.out({ type: "debug", text: `${block.id} is ${twin.id} drawn again; replaced in place` });
+    return { ...e, block: { ...block, id: twin.id, column: "column" in twin ? twin.column : block.column } as typeof block };
   }
 
   private async resolveImage(id: string, prompt: string) {
@@ -541,13 +588,23 @@ export class Session {
   }
 
   /**
-   * The board should carry what was said. When a teaching turn speaks far
-   * more than it writes, the next turn opens with the numbers so the model
-   * corrects course, instead of drifting into a lecture with a bare board.
+   * The board should carry what was said, and speech should explain what was
+   * written. When a teaching turn speaks far more than it writes, or writes
+   * far more than it says, the next turn opens with the numbers so the model
+   * corrects course, instead of a lecture with a bare board or a wall of
+   * formulas nobody walked through.
    */
   private checkBoardCoverage() {
-    const { said, wrote, diagrams } = this.turnWords;
-    if (said < 40 || !this.planDelivered) return; // intake and short replies are fine
+    const { said, wrote, diagrams, math } = this.turnWords;
+    if (!this.planDelivered) return; // the intake is fine
+    if (wrote >= 40 && wrote > said * 1.5) {
+      log.info(`board ahead of speech on ${this.id}: said ${said}, wrote ${wrote}`);
+      this.boardNudge = `[Board check on your last turn: you wrote ${wrote} words but said only ${said}. The student follows by listening, and writing you do not explain is lost on them. Say out loud every line you write: where each number comes from and what it means. Write a worked example one line at a time, each line in its own small block right after the spoken line that explains it.]`;
+      this.checkInDue = true;
+      return;
+    }
+    if (math && this.autoRun >= 1) this.checkInDue = true; // two math steps in a row without a pause
+    if (said < 40) return; // short replies are fine
     const thin = wrote < said * 0.6;
     if (!thin) return;
     log.info(`board thin on ${this.id}: said ${said}, wrote ${wrote}, diagrams ${diagrams}`);
@@ -584,7 +641,8 @@ export class Session {
     this.spoken = [];
     this.turnStart = this.board;
     this.turnEvents = [];
-    this.turnWords = { said: 0, wrote: 0, diagrams: 0 };
+    this.turnWords = { said: 0, wrote: 0, diagrams: 0, math: 0 };
+    this.checkInDue = false;
     this.heard = null;
     this.turns += 1;
     let prompt = userText;
@@ -723,11 +781,26 @@ function boardSummary(board: BoardState): string {
     else if (b.type === "annotation") what = `${b.kind} on ${b.target}${b.match ? `: "${b.match.slice(0, 40)}"` : ""}`;
     else if (b.type === "page") what = `${b.source} page ${b.page}`;
     else if (b.type === "embed") what = b.title ?? "";
-    else if (b.type === "svg") what = "diagram";
+    else if (b.type === "svg") what = `diagram${b.caption ? `: ${b.caption}` : ""}`;
     return `- ${b.id} (${b.type}${col}) ${what}`;
   });
   const text = lines.join("\n");
   return text.length > 4000 ? "...\n" + text.slice(-4000) : text || "(empty)";
+}
+
+/** What makes two diagrams or two pictures the same one: the caption or the prompt, ignoring case and punctuation. */
+function sameness(b: BoardState["blocks"][number]): string | null {
+  const text = b.type === "svg" ? b.caption : b.type === "image" ? b.prompt : undefined;
+  const key = text?.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return key ? key : null;
+}
+
+/** A block as one short phrase for a note to the model. */
+function describe(b: BoardState["blocks"][number]): string {
+  if (b.type === "svg") return `${b.id} (diagram${b.caption ? ` "${b.caption}"` : ""})`;
+  if (b.type === "image") return `${b.id} (picture "${b.prompt.slice(0, 60)}")`;
+  if (b.type === "html") return `${b.id} ("${b.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 60)}")`;
+  return `${b.id} (${b.type})`;
 }
 
 function escapeHtml(s: string): string {

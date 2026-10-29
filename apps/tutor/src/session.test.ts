@@ -143,6 +143,53 @@ describe("session", () => {
     expect(s.board.blocks.find((b) => b.id === "plan")).toMatchObject({ html: "v1\n" });
   });
 
+  it("replaces a diagram drawn again under a new id instead of adding a second one", async () => {
+    const { s, msgs } = await teaching();
+    const svg = '<svg viewBox="0 0 300 200"><rect x="10" y="10" width="80" height="40"/></svg>';
+    process.env.FAKE_BODY = `@say a\n@svg id=ac_loop col=1 caption="Actor-Critic inside the RL loop"\n${svg}\n@end\n@continue\n`;
+    await s.user("go on");
+    process.env.FAKE_BODY = `@say b\n@svg id=ac_loop_2 col=2 caption="Actor-critic inside the RL loop."\n${svg}\n@end\n@annotate id=ann_fb target=ac_loop_2 kind=circle at=center\n@continue\n`;
+    await s.user("go ahead");
+    expect(s.board.blocks.filter((b) => b.type === "svg").map((b) => b.id)).toEqual(["ac_loop"]);
+    expect(s.board.blocks.find((b) => b.id === "ac_loop")).toMatchObject({ column: 1 });
+    expect(s.board.blocks.find((b) => b.id === "ann_fb")).toMatchObject({ target: "ac_loop" });
+    expect(errors(msgs)).toEqual([]);
+  });
+
+  it("names what stayed on the board after an interruption so it is not drawn again", async () => {
+    const { s } = await teaching();
+    process.env.FAKE_BODY = '@say three\n@svg id=ac_loop col=1 caption="Actor-Critic loop"\n<svg viewBox="0 0 300 200"><rect x="1" y="1" width="9" height="9"/></svg>\n@end\n@say four\n@html id=b4 col=1\nfourth\n@end\n@continue\n';
+    await s.user("go on");
+    s.interrupt(1);
+    await s.user("ok go ahead");
+    const last = turns().at(-1)!;
+    expect(last.prompt).toContain('Still on the board from that turn: ac_loop (diagram "Actor-Critic loop")');
+    expect(last.prompt).toContain("Taken off the board, never seen: b4");
+  });
+
+  it("calls out a turn that wrote far more than it said, and checks in before going on", async () => {
+    const { s } = await teaching();
+    process.env.FAKE_BODY = `@say Step four.\n@html id=step4 col=1\n${"Critic predicted five, got minus one, new state worth seven. ".repeat(5)}\n@end\n@continue\n`;
+    await s.user("go on");
+    await s.continue();
+    const last = turns().at(-1)!;
+    expect(last.prompt).toContain("you wrote");
+    expect(last.prompt).toContain("Say out loud every line you write");
+    expect(last.prompt).toContain("check in on the step you just covered");
+  });
+
+  it("checks in after a few steps in a row, and not before", async () => {
+    const { s } = await teaching();
+    process.env.FAKE_BODY = "@say one two three four\n@html id=b9 col=1\none two three four\n@end\n@continue\n";
+    await s.user("go on");
+    for (let i = 0; i < 2; i++) {
+      await s.continue();
+      expect(turns().at(-1)!.prompt).not.toContain("check in");
+    }
+    await s.continue();
+    expect(turns().at(-1)!.prompt).toContain("check in on the step you just covered");
+  });
+
   it("tells the next turn about an interruption and answers what the student said over it", async () => {
     const { s } = await teaching();
     process.env.FAKE_LINE_MS = "60";
